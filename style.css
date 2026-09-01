@@ -1,0 +1,187 @@
+:root {
+  --bg: #ffffff;
+  --panel: #f7f7f5;
+  --border: #e3e3df;
+  --text: #1f2328;
+  --muted: #6a737d;
+  --accent: #2f6feb;
+  --accent-soft: #e8f0fe;
+  --err: #b31d28;
+  --err-bg: #ffeef0;
+  --ok-bg: #e6f4ea;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --accent: #4c8bf5;
+    --accent-soft: #1c2b45;
+    --err: #ff7b72;
+    --err-bg: #2d1416;
+    --ok-bg: #12261a;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body, #app { height: 100%; margin: 0; }
+body { font-family: var(--sans); color: var(--text); background: var(--bg); }
+
+.app { height: 100%; }
+
+/* connect screen */
+.connect { display: grid; place-items: center; height: 100%; padding: 1rem; }
+.card {
+  width: min(440px, 100%); background: var(--panel);
+  border: 1px solid var(--border); border-radius: 12px; padding: 1.75rem;
+}
+.card h1 { margin: 0 0 .25rem; font-size: 1.4rem; }
+.card form { display: flex; gap: .5rem; margin-top: 1rem; }
+.card input[type=url] {
+  flex: 1; padding: .55rem .7rem; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--bg); color: var(--text); font-size: .95rem;
+}
+.advanced-toggle { cursor: pointer; color: var(--muted); font-size: .85rem; margin: 1rem 0 .25rem; user-select: none; }
+.advanced label { display: block; font-size: .8rem; color: var(--muted); margin-bottom: .3rem; }
+.advanced textarea {
+  width: 100%; font-family: var(--mono); font-size: .8rem; padding: .5rem;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text);
+}
+
+/* buttons */
+button {
+  padding: .5rem .85rem; border: 1px solid var(--accent); background: var(--accent);
+  color: #fff; border-radius: 8px; cursor: pointer; font-size: .9rem;
+}
+button:disabled { opacity: .55; cursor: default; }
+button.ghost { background: transparent; color: var(--text); border-color: var(--border); }
+button.ghost.on { background: var(--accent-soft); border-color: var(--accent); }
+
+/* browser layout */
+.browser { display: flex; flex-direction: column; height: 100%; }
+.browser header {
+  display: flex; align-items: center; gap: .75rem; padding: .5rem .9rem;
+  border-bottom: 1px solid var(--border); background: var(--panel);
+}
+.browser header .kb { font-family: var(--mono); font-size: .85rem; color: var(--muted); }
+.browser header .kb { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.spacer { flex: 1; }
+.body { flex: 1; display: flex; min-height: 0; position: relative; }
+
+/* the menu button and drawer backdrop only exist on mobile */
+header .menu { display: none; font-size: 1.1rem; padding: .35rem .6rem; }
+.backdrop { display: none; }
+
+/* tree */
+.tree {
+  width: 300px; min-width: 200px; overflow: auto; padding: .5rem 0;
+  border-right: 1px solid var(--border); background: var(--panel);
+}
+.tree ul { list-style: none; margin: 0; padding: 0; }
+.tree .children { margin-left: .9rem; }
+.row {
+  display: flex; align-items: center; gap: .35rem; padding: .18rem .6rem;
+  cursor: pointer; font-size: .9rem; white-space: nowrap;
+}
+.row:hover { background: var(--accent-soft); }
+.row.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.row .twist { width: 1ch; color: var(--muted); }
+.row .icon { font-size: .8rem; }
+.pad { padding: .18rem 1.4rem; font-size: .85rem; }
+
+/* content pane */
+.pane { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.toolbar {
+  display: flex; align-items: center; gap: .5rem; padding: .5rem .8rem;
+  border-bottom: 1px solid var(--border);
+}
+.toolbar .path { font-family: var(--mono); font-size: .82rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.toolbar .msg {
+  flex: 1; min-width: 8rem; padding: .4rem .6rem; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--bg); color: var(--text);
+}
+.empty { padding: 2rem; }
+.markdown, .raw, .editor { flex: 1; overflow: auto; padding: 1.25rem 1.5rem; }
+.raw { font-family: var(--mono); font-size: .85rem; white-space: pre-wrap; margin: 0; }
+.editor {
+  border: 0; resize: none; font-family: var(--mono); font-size: .9rem;
+  background: var(--bg); color: var(--text); outline: none; line-height: 1.5;
+}
+
+/* rendered markdown */
+.markdown { line-height: 1.65; max-width: 52rem; }
+.markdown h1, .markdown h2 { border-bottom: 1px solid var(--border); padding-bottom: .3rem; }
+.markdown code {
+  font-family: var(--mono); background: var(--panel); padding: .1rem .3rem; border-radius: 4px; font-size: .88em;
+}
+.markdown pre { background: var(--panel); padding: .8rem; border-radius: 8px; overflow: auto; }
+.markdown pre code { background: none; padding: 0; }
+.markdown a { color: var(--accent); }
+.markdown blockquote { margin: 0; padding-left: 1rem; border-left: 3px solid var(--border); color: var(--muted); }
+.markdown table { border-collapse: collapse; }
+.markdown th, .markdown td { border: 1px solid var(--border); padding: .35rem .6rem; }
+
+/* Frontmatter metadata (from/subject/date …) rendered as a compact card, not a
+   markdown heading. Borderless key/value rows above the note body. */
+.markdown table.frontmatter {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  margin: 0 0 1.25rem;
+  font-size: .9rem;
+}
+.markdown table.frontmatter th,
+.markdown table.frontmatter td {
+  border: none;
+  border-bottom: 1px solid var(--border);
+  padding: .3rem .7rem;
+  text-align: left;
+  vertical-align: top;
+}
+.markdown table.frontmatter tr:last-child th,
+.markdown table.frontmatter tr:last-child td { border-bottom: none; }
+.markdown table.frontmatter th {
+  color: var(--muted);
+  font-weight: 600;
+  white-space: nowrap;
+  width: 1%;
+}
+
+/* misc */
+.muted { color: var(--muted); }
+.err { color: var(--err); }
+.banner { margin: .6rem .8rem; padding: .5rem .75rem; border-radius: 8px; font-size: .88rem; }
+.banner.err { background: var(--err-bg); color: var(--err); }
+.banner.info { background: var(--ok-bg); }
+
+/* mobile: the tree becomes a slide-in drawer over the content pane */
+@media (max-width: 720px) {
+  header .menu { display: inline-flex; align-items: center; }
+
+  .tree {
+    position: absolute;
+    top: 0; bottom: 0; left: 0;
+    width: min(82vw, 320px);
+    z-index: 30;
+    transform: translateX(-100%);
+    transition: transform .2s ease;
+    box-shadow: 2px 0 16px rgba(0, 0, 0, .35);
+  }
+  .browser.tree-open .tree { transform: translateX(0); }
+
+  .backdrop {
+    display: none;
+    position: absolute; inset: 0; z-index: 20;
+    background: rgba(0, 0, 0, .4);
+  }
+  .browser.tree-open .backdrop { display: block; }
+
+  .pane { width: 100%; }
+  .markdown, .raw, .editor { padding: 1rem 1.1rem; }
+  .toolbar { flex-wrap: wrap; }
+}
