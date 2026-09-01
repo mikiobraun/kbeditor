@@ -243,6 +243,25 @@ const App = {
       client.value = null;
     }
 
+    // --- change log (recent commits) modal ---
+    const showLog = ref(false);
+    const logEntries = ref([]);
+    const logLoading = ref(false);
+    const logError = ref(null);
+
+    async function openLog() {
+      showLog.value = true;
+      logLoading.value = true;
+      logError.value = null;
+      try {
+        logEntries.value = await client.value.history({ max: 50 });
+      } catch (e) {
+        logError.value = e.message || String(e);
+      } finally {
+        logLoading.value = false;
+      }
+    }
+
     onMounted(async () => {
       // If we're returning from the AS with an auth code, finish the flow and
       // auto-connect to the KB we were signing into.
@@ -262,6 +281,7 @@ const App = {
       view, kbUrl, manualToken, showAdvanced, busy, banner, treeOpen,
       roots, selected, content, etag, mode, editText, commitMsg, saving, rendered,
       connect, openFile, startEdit, save, disconnect,
+      showLog, logEntries, logLoading, logError, openLog,
     };
   },
   template: `
@@ -292,6 +312,7 @@ const App = {
           <button class="ghost menu" @click="treeOpen = !treeOpen" aria-label="Toggle file tree">☰</button>
           <span class="kb">{{ kbUrl }}</span>
           <span class="spacer"></span>
+          <button class="ghost" @click="openLog">Log</button>
           <button class="ghost" @click="disconnect">Disconnect</button>
         </header>
         <div class="body">
@@ -329,6 +350,27 @@ const App = {
               <textarea v-else class="editor" v-model="editText"></textarea>
             </template>
           </main>
+        </div>
+
+        <!-- recent-changes log modal -->
+        <div v-if="showLog" class="modal-backdrop" @click.self="showLog = false">
+          <div class="modal">
+            <header class="modal-head">
+              <h2>Recent changes</h2>
+              <button class="ghost" @click="showLog = false" aria-label="Close">✕</button>
+            </header>
+            <div class="modal-body">
+              <p v-if="logLoading" class="muted">Loading…</p>
+              <p v-else-if="logError" class="err">{{ logError }}</p>
+              <p v-else-if="logEntries.length === 0" class="muted">No commits yet.</p>
+              <ul v-else class="log">
+                <li v-for="c in logEntries" :key="c.hash">
+                  <div class="log-subject">{{ c.subject }}</div>
+                  <div class="log-meta">{{ c.relative }} · {{ c.author }} · <code>{{ c.hash }}</code></div>
+                </li>
+              </ul>
+            </div>
+          </div>
         </div>
       </div>
     </div>

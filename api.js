@@ -74,5 +74,17 @@ export function KbClient(kbUrl, tokenProvider) {
       if (!r.ok) throw new Error(`save "${path}": ${r.status}`);
       return { etag: r.headers.get('ETag'), created: r.status === 201 };
     },
+
+    // Recent commits (newest first): [{hash, date, relative, author, subject}].
+    async history({ max = 50, path = '' } = {}) {
+      const q = new URLSearchParams();
+      if (max) q.set('max', max);
+      if (path) q.set('path', path);
+      const r = await fetch(`${base}/history?${q}`, await init());
+      if (r.status === 401) throw new AuthError();
+      if (!r.ok) throw new Error(`history: ${r.status}`);
+      const data = await r.json();
+      return data.commits || [];
+    },
   };
 }
