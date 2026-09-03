@@ -276,9 +276,21 @@ const App = {
       }
     });
 
+    // Forget cached DCR client registrations so the next connect re-registers
+    // (recovers from invalid_client after the gateway's database was reset).
+    function forgetClient() {
+      const n = auth.clearClientCache();
+      banner.value = {
+        kind: 'info',
+        text: n
+          ? `Cleared ${n} cached client registration${n === 1 ? '' : 's'}; you'll re-register on the next connect.`
+          : 'No cached client registration to clear.',
+      };
+    }
+
     // Expose a lazy directory lister to TreeNode via provide/inject.
     return {
-      view, kbUrl, manualToken, showAdvanced, busy, banner, treeOpen,
+      view, kbUrl, manualToken, showAdvanced, busy, banner, treeOpen, forgetClient,
       roots, selected, content, etag, mode, editText, commitMsg, saving, rendered,
       connect, openFile, startEdit, save, disconnect,
       showLog, logEntries, logLoading, logError, openLog,
@@ -301,6 +313,8 @@ const App = {
           <div v-if="showAdvanced" class="advanced">
             <label>Bearer token (skip OAuth — for local/same-origin testing)</label>
             <textarea v-model="manualToken" rows="3" placeholder="paste a token to bypass the sign-in flow"></textarea>
+            <button type="button" @click="forgetClient">Delete client_id cache</button>
+            <p class="muted">Forces a fresh registration on the next connect — use if sign-in fails with “invalid_client” after the gateway was reset.</p>
           </div>
           <div v-if="banner" class="banner" :class="banner.kind">{{ banner.text }}</div>
         </div>

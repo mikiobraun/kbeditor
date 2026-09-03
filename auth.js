@@ -107,6 +107,7 @@ export async function beginLogin(kbUrl) {
     code_challenge: challenge,
     code_challenge_method: 'S256',
     resource: meta.resource, // bind the token audience to this KB (RFC 8707)
+    audience: meta.resource, // Ory Hydra reads the audience from this param, not `resource`
   });
   location.assign(`${meta.authorizationEndpoint}?${p}`);
 }
@@ -199,6 +200,20 @@ export function hasToken(kbUrl) {
 
 export function logout(kbUrl) {
   localStorage.removeItem(tokenKey(kbUrl));
+}
+
+// Forget cached DCR client registrations (one per issuer), forcing a fresh
+// register on the next sign-in. Use this when the AS has forgotten the client
+// (e.g. its database was reset) and login fails at the authorize step with
+// invalid_client. Returns how many were cleared.
+export function clearClientCache() {
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith('va_client_')) keys.push(k);
+  }
+  keys.forEach((k) => localStorage.removeItem(k));
+  return keys.length;
 }
 
 // Escape hatch for local / same-origin testing: store a bearer token by hand,
