@@ -29,6 +29,10 @@
 }
 
 * { box-sizing: border-box; }
+/* Stop WebKit/Safari from auto-inflating text by block width ("font boosting"),
+   which made longer file names and the narrow frontmatter table render at their
+   own sizes regardless of the font-size we set. */
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 html, body, #app { height: 100%; margin: 0; }
 body { font-family: var(--sans); color: var(--text); background: var(--bg); }
 
@@ -86,12 +90,14 @@ header .menu { display: none; font-size: 1.1rem; padding: .35rem .6rem; }
 .tree .children { margin-left: .9rem; }
 .row {
   display: flex; align-items: center; gap: .35rem; padding: .18rem .6rem;
-  cursor: pointer; font-size: .9rem; white-space: nowrap;
+  cursor: pointer; font-size: .9rem; line-height: 1.4; white-space: nowrap;
 }
 .row:hover { background: var(--accent-soft); }
-.row.active { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
-.row .twist { width: 1ch; color: var(--muted); }
-.row .icon { font-size: .8rem; }
+.row.active { background: var(--accent-soft); color: var(--accent); }
+/* Fixed, centred slots so folder/file emoji (different widths) don't shift or
+   resize the names beside them. */
+.row .twist { flex: none; width: 1ch; text-align: center; color: var(--muted); }
+.row .icon { flex: none; width: 1.3em; text-align: center; font-size: .85rem; }
 .pad { padding: .18rem 1.4rem; font-size: .85rem; }
 
 /* content pane */
