@@ -70,7 +70,12 @@ export function KbClient(kbUrl, tokenProvider) {
       const url = `${filesUrl(path)}?message=${encodeURIComponent(message)}`;
       const r = await fetch(url, await init(extra, { method: 'PUT', body: content }));
       if (r.status === 401) throw new AuthError();
-      if (r.status === 412) throw new Error('the file changed on the server since you opened it — reload before saving');
+      // 412 means a preconditon failed; which one depends on what we sent.
+      if (r.status === 412) {
+        throw new Error(opts.ifNoneMatch
+          ? 'a file already exists at that path'
+          : 'the file changed on the server since you opened it — reload before saving');
+      }
       if (!r.ok) throw new Error(`save "${path}": ${r.status}`);
       return { etag: r.headers.get('ETag'), created: r.status === 201 };
     },

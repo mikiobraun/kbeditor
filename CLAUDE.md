@@ -43,11 +43,38 @@ If you add a component, keep the same style or the alias assumption breaks.
 **Data flow.** `App.setup()` owns `client` (a `KbClient`) and everything else.
 The file tree is lazy: `App` provides a `listDir` function via `provide`, and each
 `TreeNode` `inject`s it and fetches its own children on first expand
-(`node.children === null` means "not loaded"). Dot-files are filtered and folders
-sort before files everywhere — the same sort exists in `loadRoots` and
-`loadChildren`; change both.
+(`node.children === null` means "not loaded"). `listDir` is the single place that
+hides dot-files and sorts folders before files, so every consumer — the roots,
+`TreeNode`, the post-change refresh, `revealPath` — agrees on ordering.
+
+**Change detection.** The REST API has no watch or SSE endpoint, but every write
+to the KB is a git commit, so `GET /history?max=1` is a cheap change token for
+the whole vault: one request answers "did anything change?" — and it's O(1) in
+repo size, since `git log -n1` with no pathspec reads one commit object and
+computes no diff (a `?path=` would walk history instead; nothing passes one).
+
+There is deliberately **no timer**: `syncNow` runs on `visibilitychange`/`focus`
+and on clicks in the tree and the document pane, throttled by `MIN_SYNC_GAP`, so
+an idle tab costs nothing. On a change it calls `refreshTree`
+(which re-lists only *expanded* folders and reuses existing node objects, so
+expansion state survives) and re-reads the open file. In edit mode it must not
+touch the buffer — it sets `staleFile` instead, since the `If-Match` save would
+be rejected anyway. Our own commits call `markSynced` so they don't come back as
+external changes. `startEdit` re-reads the open file directly, bypassing the
+throttle, so an edit never starts from a stale buffer. Blind spot: a change that
+doesn't move HEAD — a file written into the vault without a commit — is invisible
+to this.
+
+**Session restore.** `connect()` reconnects to `kb_editor_last_url` on load when
+a token is still held, and reopens `kb_editor_last_file_<kbUrl>` via `revealPath`,
+which expands and loads each ancestor folder so the file is highlighted in the
+tree. Both restores are silent on failure and never redirect to login on their
+own — a stale token would otherwise make every page load a surprise navigation.
+The restore runs *after* `connect`'s try/finally for the same reason: a failed
+restore is not a failed connect.
 
 **Auth flow** (`auth.js`), all browser-side, no secrets:
+
 1. Discovery: `GET <kb>/.well-known/oauth-protected-resource` (RFC 9728) →
    `GET <issuer>/.well-known/oauth-authorization-server` (RFC 8414).
 2. Dynamic client registration (RFC 7591) the first time, `client_id` cached in
@@ -71,6 +98,12 @@ Only same-origin cookie mode (no token) uses `'include'`.
 A 412 is surfaced as "the file changed on the server" rather than clobbering.
 Every save is a commit on the KB side, so a commit message is required.
 
+A **new file** is not written until its first save: *New* only opens an empty
+buffer at a path (`creating` is true, `etag` null), which keeps a new note to one
+commit. That save goes out with `If-None-Match: *` instead, so losing a race to
+the same path fails rather than overwriting — hence the two different 412
+messages in `api.js`.
+
 **Rendering.** `renderNote` splits leading YAML frontmatter off (flat scalar keys
 only) and renders it as a table, then `marked` + `DOMPurify.sanitize` for the
 body. Without the split, `marked` turns the closing `---` into a setext heading.
@@ -88,9 +121,5 @@ and `/login` are top-level redirects, not fetches).
 
 ## Conventions
 
-- `changes.local` (gitignored) is a pending-work log: append a self-contained
-  entry per logical change so whoever commits later — possibly a different agent
-  — can reconstruct clean commits. Read its header for the entry template, and
-  delete entries once committed.
 - `README.md` documents the same auth/CORS/save behaviour for humans; keep the
   two in sync when any of that changes.

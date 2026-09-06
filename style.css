@@ -231,3 +231,16 @@ ul.log li:last-child { border-bottom: none; }
 .log-subject { font-weight: 500; word-break: break-word; }
 .log-meta { color: var(--muted); font-size: .85rem; margin-top: .15rem; }
 .log-meta code { font-family: var(--mono); }
+
+/* New-file dialog (shares the modal shell with the log) */
+.new-file input {
+  width: 100%; padding: .5rem .6rem; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--bg); color: var(--text);
+  font-family: var(--mono); font-size: .9rem;
+}
+.new-file p { font-size: .85rem; margin: .6rem 0; }
+.new-file code { font-family: var(--mono); word-break: break-all; }
+.new-file .actions { display: flex; gap: .5rem; margin-top: .9rem; }
+
+/* The stale-file banner carries an action, so it needs to align its button. */
+.banner button { margin-left: .5rem; }

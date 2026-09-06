@@ -100,6 +100,43 @@ the read, so a concurrent change on the server surfaces as a 412 ("file changed
 … reload before saving") instead of silently clobbering. Every save is a commit
 on the KB side, which is why a commit message is required.
 
+**New** opens an empty buffer at a path you name (`.md` is appended unless the
+name already has an extension; missing folders are created with it). Nothing is
+written until you save, so a new note costs one commit and cancelling leaves no
+trace. That first save goes out with `If-None-Match: *`, so if someone else took
+the path meanwhile it fails instead of overwriting them.
+
+## Staying in sync
+
+The REST API has no watch endpoint, but every write to the KB is a commit, so the
+head commit is a single cheap change token: `GET /history?max=1` answers "did
+anything change?" for the whole vault, in one request whose cost doesn't grow
+with the repo.
+
+There is no polling. The check runs when the tab regains focus and when you click
+in the tree or the document — the moments a stale view starts to matter — with a
+2-second floor so a burst of clicks is one request. An idle tab makes no requests
+at all.
+
+When the token moves, the tree re-lists its open folders (keeping expansion and
+selection) and the open file is re-read. While you're editing, the buffer is left
+alone and a banner offers to reload instead — the `If-Match` save would be
+rejected anyway, and losing your text to a background refresh would be worse than
+a stale view. Hitting **Edit** takes the server's current version first, so you
+never start typing against a stale copy; it says so in the banner when that
+happens.
+
+A change that doesn't move HEAD — something written into the vault without a
+commit — is invisible to this.
+
+## Coming back
+
+The last KB and the file you had open are remembered per KB, so a reload drops
+you back where you were, with the tree expanded down to that file. Reconnecting
+never redirects to the login page on its own: if the stored token has expired you
+get the connect card and a note, not a surprise navigation. **Disconnect** drops
+the token, and with it the automatic reconnect.
+
 ## Viewing
 
 Notes render as sanitized markdown, with a leading YAML frontmatter block (only
@@ -111,8 +148,8 @@ the file verbatim. **Log** in the header lists the KB's recent commits
 
 ## Status / not yet done
 
-- Viewer + single-file editing. No create-new-file / rename / delete UI yet
-  (the REST API is read + create/overwrite; delete isn't exposed server-side).
+- Viewer, single-file editing, create. No rename / delete UI (the REST API is
+  read + create/overwrite; delete isn't exposed server-side).
 - No wiki-link navigation (kbmcp exposes `backlinks`/`outgoing_links` over MCP,
   not REST).
 - Tree loads lazily per folder; no search box yet.
