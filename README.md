@@ -100,6 +100,15 @@ the read, so a concurrent change on the server surfaces as a 412 ("file changed
 … reload before saving") instead of silently clobbering. Every save is a commit
 on the KB side, which is why a commit message is required.
 
+Task-list checkboxes are live in the rendered view: ticking one rewrites that
+line's marker in the source, saves it with `If-Match`, and commits as
+`Check "first 30 characters…"`. One commit per tick, as on GitHub. The label is
+the item's text with formatting stripped and cut at 30 characters — one rule
+regardless of how the line is punctuated, since the notes use em dashes, colons
+and full stops interchangeably. If the source line doesn't match what the box on
+screen was showing, the tick is refused rather than applied to a line it can't
+vouch for.
+
 **New** opens an empty buffer at a path you name (`.md` is appended unless the
 name already has an extension; missing folders are created with it). Nothing is
 written until you save, so a new note costs one commit and cancelling leaves no

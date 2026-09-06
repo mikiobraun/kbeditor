@@ -107,6 +107,48 @@ function visibleEntries(entries) {
     .sort((a, b) => (a.is_dir === b.is_dir ? a.name.localeCompare(b.name) : a.is_dir ? -1 : 1));
 }
 
+// taskLines returns the note's task-list lines in source order, split so a
+// toggle can rewrite just the marker. Fenced code blocks are skipped: marked
+// doesn't render a `- [ ]` inside a fence as a checkbox, so counting one here
+// would shift every index after it and tick the wrong line.
+function taskLines(text) {
+  const out = [];
+  let fence = null;
+  const lines = String(text).split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const f = /^\s*(```+|~~~+)/.exec(line);
+    if (f) {
+      if (fence === null) fence = f[1];
+      else if (line.trim().startsWith(fence[0].repeat(fence.length))) fence = null;
+      continue;
+    }
+    if (fence !== null) continue;
+    const m = /^(\s*(?:[-*+]|\d+[.)])\s+\[)([ xX])(\]\s?)(.*)$/.exec(line);
+    if (m) out.push({ line: i, checked: m[2] !== ' ', open: m[1], close: m[3], text: m[4] });
+  }
+  return out;
+}
+
+// Task text as prose, for a commit message: link labels survive, emphasis and
+// code markers don't.
+function plainText(md) {
+  return String(md)
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/[*_`~]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// One rule for the label, applied whatever the line looks like: the notes use
+// em dashes, colons and full stops interchangeably, so there is no boundary
+// worth detecting — just take the first 30 characters.
+const TASK_LABEL_MAX = 30;
+function taskLabel(md) {
+  const t = plainText(md);
+  return t.length > TASK_LABEL_MAX ? `${t.slice(0, TASK_LABEL_MAX)}…` : t;
+}
+
 // Turn a REST listing entry into a reactive tree node.
 function makeNode(entry) {
   return reactive({
@@ -529,11 +571,71 @@ const App = {
       if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 
-    // Re-mark whenever the rendered HTML is replaced — including switching back
-    // from Raw, which recreates the pane element and drops the marks with it.
+    // --- task checkboxes ------------------------------------------------------
+    //
+    // marked renders `- [ ]` as a disabled checkbox and DOMPurify keeps it, so
+    // ticking one is a matter of enabling it and mapping the click back to the
+    // source line it came from — by position, since the render and the source
+    // list tasks in the same order.
+    const savingTask = ref(false);
+
+    async function toggleTask(i, want, box) {
+      if (!selected.value || creating.value || savingTask.value || staleFile.value) {
+        if (box) box.checked = !want; // nothing was written
+        return;
+      }
+      const task = taskLines(content.value)[i];
+      // The source has to agree with what the rendered box was showing. If it
+      // doesn't, the two are out of step and writing would tick a line I can't
+      // vouch for — so refuse rather than guess.
+      if (!task || task.checked === want) {
+        if (box) box.checked = !want;
+        setError(new Error('This note no longer matches what is on screen — reload before ticking.'));
+        return;
+      }
+
+      const lines = content.value.split('\n');
+      lines[task.line] = task.open + (want ? 'x' : ' ') + task.close + task.text;
+      const next = lines.join('\n');
+      const message = `${want ? 'Check' : 'Uncheck'} "${taskLabel(task.text)}"`;
+
+      savingTask.value = true;
+      banner.value = null;
+      try {
+        const res = await client.value.write(selected.value.path, next, message, {
+          ifMatch: etag.value || undefined,
+        });
+        content.value = next;
+        etag.value = res.etag;
+        banner.value = { kind: 'info', text: `Committed: ${message}` };
+        await markSynced();
+      } catch (e) {
+        if (box) box.checked = !want;
+        setError(e);
+      } finally {
+        savingTask.value = false;
+      }
+    }
+
+    // Enable the rendered checkboxes and wire them to their source line. Each
+    // render replaces the pane's content, so listeners can't accumulate.
+    function bindTaskBoxes() {
+      const pane = notePane.value;
+      if (!pane) return;
+      // Only the boxes marked itself emits — `<li><input> text` — so a raw
+      // checkbox written as inline HTML in a note can't shift the indices.
+      pane.querySelectorAll('li > input[type="checkbox"]:first-child').forEach((box, i) => {
+        box.disabled = false;
+        box.addEventListener('change', () => toggleTask(i, box.checked, box));
+      });
+    }
+
+    // Re-mark and re-bind whenever the rendered HTML is replaced — including
+    // switching back from Raw, which recreates the pane element and drops both.
     watch([rendered, highlight, mode], async () => {
       await nextTick();
       applyHighlight();
+      bindTaskBoxes();
     });
 
     // --- change detection ---------------------------------------------------

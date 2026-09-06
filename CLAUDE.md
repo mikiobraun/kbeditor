@@ -60,6 +60,16 @@ mirroring ripgrep's smart case, so nothing is marked that the server didn't
 match. A `watch` on `[rendered, highlight, mode]` re-applies it, because leaving
 Raw mode recreates the pane element and drops the marks.
 
+**Task checkboxes.** marked renders `- [ ]` as a disabled `<input>` and
+DOMPurify's default allow-list keeps it, so `bindTaskBoxes` only has to enable
+them and map a click back to its source line — by position, since render and
+source list tasks in the same order. Two things keep that mapping honest:
+`taskLines` skips fenced code blocks (marked doesn't render a `- [ ]` inside a
+fence, so counting one would shift every later index), and the selector takes
+only marked's own `li > input:first-child`, so inline HTML in a note can't. Before
+writing, the source line's state must match what the box was showing; on mismatch
+or a failed write the box is reverted and nothing is committed.
+
 **Change detection.** The REST API has no watch or SSE endpoint, but every write
 to the KB is a git commit, so `GET /history?max=1` is a cheap change token for
 the whole vault: one request answers "did anything change?" — and it's O(1) in

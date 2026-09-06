@@ -113,6 +113,9 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); }
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
 
+/* Task-list checkboxes are live: ticking one rewrites the line and commits. */
+.markdown li > input[type="checkbox"] { cursor: pointer; margin-right: .3rem; }
+
 /* The search term, marked both in the results and in the opened note. Yellow
    with dark text reads the same in either theme, so it needs no dark variant. */
 mark {
