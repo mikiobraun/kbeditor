@@ -560,11 +560,29 @@ const App = {
       treeOpen.value = false;
     }
 
+    // Every save is a commit, so it needs a message. Rather than refusing with
+    // an error and leaving you to find the toolbar field, ask for it where you
+    // already are.
+    const showCommitPrompt = ref(false);
+    const commitInput = ref(null);
+
     async function save() {
       if (!commitMsg.value.trim()) {
-        banner.value = { kind: 'err', text: 'A commit message is required.' };
+        showCommitPrompt.value = true;
+        await nextTick();
+        if (commitInput.value) commitInput.value.focus();
         return;
       }
+      await doSave();
+    }
+
+    async function confirmCommit() {
+      if (!commitMsg.value.trim()) return;
+      showCommitPrompt.value = false;
+      await doSave();
+    }
+
+    async function doSave() {
       saving.value = true;
       banner.value = null;
       const isNew = creating.value;
@@ -663,6 +681,7 @@ const App = {
       creating, staleFile, reloadFile, syncNow,
       connect, openFile, startEdit, cancelEdit, save, disconnect,
       showNew, newPath, newError, newInput, newFullPath, openNew, confirmNew,
+      showCommitPrompt, commitInput, confirmCommit,
       showLog, logEntries, logLoading, logError, openLog,
     };
   },
@@ -743,6 +762,26 @@ const App = {
               <textarea v-else class="editor" v-model="editText"></textarea>
             </template>
           </main>
+        </div>
+
+        <!-- commit-message modal: shown when Save is pressed with none given -->
+        <div v-if="showCommitPrompt" class="modal-backdrop" @click.self="showCommitPrompt = false">
+          <div class="modal">
+            <header class="modal-head">
+              <h2>Commit message</h2>
+              <button class="ghost" @click="showCommitPrompt = false" aria-label="Close">✕</button>
+            </header>
+            <div class="modal-body">
+              <form class="new-file" @submit.prevent="confirmCommit">
+                <input ref="commitInput" v-model="commitMsg" placeholder="what changed?" />
+                <p class="muted">Saving <code>{{ selected && selected.path }}</code> commits it to the knowledge base.</p>
+                <div class="actions">
+                  <button type="submit" :disabled="!commitMsg.trim()">Save</button>
+                  <button type="button" class="ghost" @click="showCommitPrompt = false">Cancel</button>
+                </div>
+              </form>
+            </div>
+          </div>
         </div>
 
         <!-- new-file modal -->
