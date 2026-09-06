@@ -9,6 +9,7 @@
   --err: #b31d28;
   --err-bg: #ffeef0;
   --ok-bg: #e6f4ea;
+  --mark: #ffe14d;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
@@ -76,6 +77,48 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); }
 .browser header .kb { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .spacer { flex: 1; }
 .body { flex: 1; display: flex; min-height: 0; position: relative; }
+
+/* header search */
+.browser header .search { display: flex; gap: .4rem; min-width: 0; flex: 0 1 26rem; }
+.browser header .search button { flex: none; padding: .4rem .7rem; }
+.browser header .search input {
+  width: 100%; padding: .4rem .6rem; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--bg); color: var(--text); font-size: .88rem;
+}
+
+/* search results, shown in the content pane */
+.results { flex: 1; overflow: auto; padding: .5rem 0 1.5rem; }
+.results-head {
+  display: flex; align-items: center; gap: .5rem;
+  padding: .5rem .9rem .7rem; font-size: .9rem;
+}
+.result-file { margin: 0 0 .9rem; }
+.result-path {
+  font-family: var(--mono); font-size: .82rem; color: var(--muted);
+  padding: .25rem .9rem; border-bottom: 1px solid var(--border);
+}
+.result-line {
+  display: flex; gap: .7rem; align-items: baseline;
+  padding: .28rem .9rem; cursor: pointer; font-size: .88rem;
+}
+.result-line:hover { background: var(--accent-soft); }
+.result-lineno {
+  flex: none; min-width: 2.5rem; text-align: right;
+  font-family: var(--mono); font-size: .78rem; color: var(--muted);
+}
+/* The whole line wraps rather than being clipped: a markdown paragraph is one
+   long line, and the hit is often past the point an ellipsis would cut. */
+.result-text {
+  font-family: var(--mono); font-size: .82rem; min-width: 0;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+/* The search term, marked both in the results and in the opened note. Yellow
+   with dark text reads the same in either theme, so it needs no dark variant. */
+mark {
+  background: var(--mark); color: #1f2328;
+  border-radius: 3px; padding: 0 .12em;
+}
 
 /* the menu button and drawer backdrop only exist on mobile */
 header .menu { display: none; font-size: 1.1rem; padding: .35rem .6rem; }

@@ -47,6 +47,19 @@ The file tree is lazy: `App` provides a `listDir` function via `provide`, and ea
 hides dot-files and sorts folders before files, so every consumer — the roots,
 `TreeNode`, the post-change refresh, `revealPath` — agrees on ordering.
 
+**Search.** `GET /search?substring=…` (kbmcp, ripgrep-backed) on submit only —
+never per keystroke, since each call spawns a ripgrep over the vault. Results are
+grouped by file in the pane; `openMatch` routes through `revealPath` so the file
+is selected in the tree rather than opening from nowhere.
+
+Highlighting has two rules worth keeping. It never builds HTML from search
+results or note content: the results list renders `<mark>` elements from
+`matchParts`, and the note is marked by walking **text nodes** (a regex over the
+rendered HTML would rewrite tags and attribute values). And it uses `caseFold`,
+mirroring ripgrep's smart case, so nothing is marked that the server didn't
+match. A `watch` on `[rendered, highlight, mode]` re-applies it, because leaving
+Raw mode recreates the pane element and drops the marks.
+
 **Change detection.** The REST API has no watch or SSE endpoint, but every write
 to the KB is a git commit, so `GET /history?max=1` is a cheap change token for
 the whole vault: one request answers "did anything change?" — and it's O(1) in

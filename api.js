@@ -83,6 +83,19 @@ export function KbClient(kbUrl, tokenProvider) {
       return { etag: r.headers.get('ETag'), created: r.status === 201 };
     },
 
+    // Content search across the KB: [{path, line, text}] plus a truncated flag.
+    // Substring only, and the parameter is named for the mode — so a literal
+    // like "[x]" can never be read as a regex.
+    async search(substring, { max } = {}) {
+      const q = new URLSearchParams({ substring });
+      if (max) q.set('max', max);
+      const r = await fetch(`${base}/search?${q}`, await init());
+      if (r.status === 401) throw new AuthError();
+      if (!r.ok) throw new Error(`search: ${r.status} ${(await r.text()).slice(0, 120)}`);
+      const data = await r.json();
+      return { matches: data.matches || [], truncated: !!data.truncated };
+    },
+
     // Recent commits (newest first): [{hash, date, relative, author, subject}].
     async history({ max = 50, path = '' } = {}) {
       const q = new URLSearchParams();

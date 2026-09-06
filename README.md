@@ -106,6 +106,26 @@ written until you save, so a new note costs one commit and cancelling leaves no
 trace. That first save goes out with `If-None-Match: *`, so if someone else took
 the path meanwhile it fails instead of overwriting them.
 
+## Search
+
+The header box searches note contents across the whole KB via
+`GET /search?substring=…`, which is kbmcp's ripgrep-backed search behind a REST
+route. Substring only: the parameter is named for the mode, so a literal like
+`[x]` is never read as a regex.
+
+One search per press of **Search** (or Enter) — not per keystroke, since each one
+spawns a ripgrep over the vault. Results fill the pane grouped by file, with each
+matching line and its line number; clicking one opens that file, expanding the
+tree down to it, with the term marked and the first hit scrolled into view. The
+term stays in the box, so pressing Search again brings the results back.
+
+Marking follows ripgrep's smart case — a pattern containing an uppercase letter
+matches case-sensitively — so what's highlighted is exactly what the server
+counted as a match.
+
+Not yet: filename search, live search as you type, cycling between hits,
+restricting a search to a folder, regex mode.
+
 ## Staying in sync
 
 The REST API has no watch endpoint, but every write to the KB is a commit, so the

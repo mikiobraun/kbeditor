@@ -1,4 +1,4 @@
-import { createApp, reactive, ref, computed, inject, provide, onMounted, nextTick } from 'vue';
+import { createApp, reactive, ref, computed, inject, provide, onMounted, nextTick, watch } from 'vue';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { load as loadYaml, FAILSAFE_SCHEMA } from 'js-yaml';
@@ -373,6 +373,7 @@ const App = {
         mode.value = 'view';
         creating.value = false;
         staleFile.value = false;
+        highlight.value = ''; // openMatch re-sets it after this returns
         treeOpen.value = false; // close the drawer after picking a file (mobile)
         localStorage.setItem(fileKey(kbUrl.value), node.path);
       } catch (e) {
@@ -397,6 +398,143 @@ const App = {
         setError(e);
       }
     }
+
+    // --- search ---------------------------------------------------------------
+    //
+    // One search per Enter, not per keystroke: each one spawns a ripgrep over
+    // the whole vault, and a debounce still means a full scan for every pause in
+    // typing. Live search is worth having later; it isn't free enough to switch
+    // on by default.
+    const searchTerm = ref('');
+    const searchResults = ref(null); // null = the pane is showing a file
+    const searching = ref(false);
+    const highlight = ref(''); // term to mark in the opened file
+
+    // Match ripgrep's smart case: a pattern with an uppercase letter is
+    // case-sensitive, anything else isn't. Marking has to use the same rule as
+    // the search did, or we highlight things the server never matched.
+    function caseFold(term) {
+      const sensitive = /[A-Z]/.test(term);
+      return (s) => (sensitive ? s : s.toLowerCase());
+    }
+
+    // Split a line into alternating plain and matching parts, so a hit can be
+    // marked in the results without ever building HTML out of search results.
+    function matchParts(text, term) {
+      const s = String(text === null || text === undefined ? '' : text);
+      if (!term) return [{ t: s, hit: false }];
+      const fold = caseFold(term);
+      const hay = fold(s);
+      const needle = fold(term);
+      const parts = [];
+      let i = 0;
+      for (;;) {
+        const at = hay.indexOf(needle, i);
+        if (at === -1) break;
+        if (at > i) parts.push({ t: s.slice(i, at), hit: false });
+        parts.push({ t: s.slice(at, at + term.length), hit: true });
+        i = at + term.length;
+      }
+      if (i < s.length) parts.push({ t: s.slice(i), hit: false });
+      return parts;
+    }
+
+    // Matches arrive flat, but they cluster: forty hits under five headings read
+    // where forty numbered lines don't.
+    function groupMatches(matches) {
+      const groups = [];
+      const byPath = new Map();
+      for (const m of matches) {
+        let g = byPath.get(m.path);
+        if (!g) {
+          g = { path: m.path, lines: [] };
+          byPath.set(m.path, g);
+          groups.push(g);
+        }
+        g.lines.push(m);
+      }
+      return groups;
+    }
+
+    async function runSearch() {
+      const term = searchTerm.value;
+      if (!term.trim()) {
+        clearSearch();
+        return;
+      }
+      searching.value = true;
+      banner.value = null;
+      try {
+        const { matches, truncated } = await client.value.search(term);
+        searchResults.value = { term, groups: groupMatches(matches), truncated, count: matches.length };
+      } catch (e) {
+        setError(e);
+      } finally {
+        searching.value = false;
+      }
+    }
+
+    // The term stays in the box, so getting back to the results is pressing
+    // Search again. Deliberately not on focusing the box: clicking in to type a
+    // new search would then take away the note you were reading.
+    function clearSearch() {
+      searchTerm.value = '';
+      searchResults.value = null;
+    }
+
+    // Open the file a match belongs to, carrying the term over so it can be
+    // marked in the note. revealPath expands the tree on the way, so the file is
+    // selected in the tree too rather than opening from nowhere.
+    async function openMatch(path) {
+      const term = searchResults.value ? searchResults.value.term : '';
+      searchResults.value = null;
+      const node = (await revealPath(path)) || { name: path.split('/').pop(), path, is_dir: false };
+      await openFile(node);
+      highlight.value = term;
+    }
+
+    // Mark the term in the rendered note. This walks text nodes rather than
+    // running a regex over the HTML string, which would happily rewrite tag
+    // names and attribute values. Each render replaces the pane's content, so
+    // the marks never accumulate.
+    function applyHighlight() {
+      const pane = notePane.value;
+      const term = highlight.value;
+      if (!pane || !term) return;
+      const fold = caseFold(term);
+      const needle = fold(term);
+      const walker = document.createTreeWalker(pane, NodeFilter.SHOW_TEXT);
+      const targets = [];
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        // Never descend into a mark we already made: if this ever ran twice on
+        // the same DOM, it would nest marks inside marks.
+        if (node.parentNode && node.parentNode.nodeName === 'MARK') continue;
+        if (fold(node.nodeValue).includes(needle)) targets.push(node);
+      }
+      for (const node of targets) {
+        const frag = document.createDocumentFragment();
+        for (const part of matchParts(node.nodeValue, term)) {
+          if (!part.hit) {
+            frag.appendChild(document.createTextNode(part.t));
+            continue;
+          }
+          const mark = document.createElement('mark');
+          mark.textContent = part.t;
+          frag.appendChild(mark);
+        }
+        node.parentNode.replaceChild(frag, node);
+      }
+      const first = pane.querySelector('mark');
+      if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+
+    // Re-mark whenever the rendered HTML is replaced — including switching back
+    // from Raw, which recreates the pane element and drops the marks with it.
+    watch([rendered, highlight, mode], async () => {
+      await nextTick();
+      applyHighlight();
+    });
 
     // --- change detection ---------------------------------------------------
     //
@@ -678,6 +816,8 @@ const App = {
       view, kbUrl, manualToken, showAdvanced, busy, banner, treeOpen, forgetClient,
       roots, selected, content, etag, mode, editText, commitMsg, saving, rendered,
       hasFrontmatter, notePane, scrollToFrontmatter, scrollToContent,
+      searchTerm, searchResults, searching, matchParts,
+      runSearch, clearSearch, openMatch,
       creating, staleFile, reloadFile, syncNow,
       connect, openFile, startEdit, cancelEdit, save, disconnect,
       showNew, newPath, newError, newInput, newFullPath, openNew, confirmNew,
@@ -714,6 +854,13 @@ const App = {
         <header>
           <button class="ghost menu" @click="treeOpen = !treeOpen" aria-label="Toggle file tree">☰</button>
           <span class="kb">{{ kbUrl }}</span>
+          <form class="search" @submit.prevent="runSearch">
+            <input v-model="searchTerm" type="search" placeholder="Search the knowledge base…"
+                   @search="runSearch" />
+            <button class="ghost" type="submit" :disabled="searching">
+              {{ searching ? 'Searching…' : 'Search' }}
+            </button>
+          </form>
           <span class="spacer"></span>
           <button class="ghost" @click="openNew">New</button>
           <button class="ghost" @click="openLog">Log</button>
@@ -737,7 +884,31 @@ const App = {
               This file changed on the server while you were editing — saving would be rejected.
               <button class="ghost" @click="reloadFile">Discard my edits and reload</button>
             </div>
-            <div v-if="!selected" class="empty muted">Select a file from the tree, or create one with “New”.</div>
+            <div v-if="searching" class="empty muted">Searching…</div>
+            <div v-else-if="searchResults" class="results">
+              <div class="results-head">
+                <span>
+                  <strong>{{ searchResults.count }}</strong>
+                  {{ searchResults.count === 1 ? 'match' : 'matches' }} for “{{ searchResults.term }}”
+                </span>
+                <span class="spacer"></span>
+                <button class="ghost" @click="clearSearch">Clear</button>
+              </div>
+              <p v-if="!searchResults.groups.length" class="empty muted">Nothing found.</p>
+              <div v-for="g in searchResults.groups" :key="g.path" class="result-file">
+                <div class="result-path">{{ g.path }}</div>
+                <div v-for="m in g.lines" :key="m.line" class="result-line" @click="openMatch(g.path)">
+                  <span class="result-lineno">{{ m.line }}</span>
+                  <span class="result-text"><template
+                    v-for="(p, i) in matchParts(m.text, searchResults.term)" :key="i"><mark
+                      v-if="p.hit">{{ p.t }}</mark><template v-else>{{ p.t }}</template></template></span>
+                </div>
+              </div>
+              <p v-if="searchResults.truncated" class="muted pad">
+                Stopped at {{ searchResults.count }} matches — there are more.
+              </p>
+            </div>
+            <div v-else-if="!selected" class="empty muted">Select a file from the tree, or create one with “New”.</div>
             <template v-else>
               <div class="toolbar">
                 <span class="path">{{ selected.path }}<span v-if="creating" class="muted"> · new</span></span>
