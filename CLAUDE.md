@@ -47,10 +47,15 @@ The file tree is lazy: `App` provides a `listDir` function via `provide`, and ea
 hides dot-files and sorts folders before files, so every consumer — the roots,
 `TreeNode`, the post-change refresh, `revealPath` — agrees on ordering.
 
-**Search.** `GET /search?substring=…` (kbmcp, ripgrep-backed) on submit only —
-never per keystroke, since each call spawns a ripgrep over the vault. Results are
-grouped by file in the pane; `openMatch` routes through `revealPath` so the file
-is selected in the tree rather than opening from nowhere.
+**Search.** Two of them, on submit only — never per keystroke, since each call
+spawns a ripgrep or an fd over the vault. `GET /search?substring=…` searches
+contents, grouped by file in the pane. `GET /find?substring=…` searches
+filenames from the box above the tree, replacing it with a flat list (a filtered
+*tree* would show folders holding only their matching children, which reads as
+folders that contain only those). Both `openMatch` and `openFound` route through
+`revealPath`, so the file ends up selected in the tree rather than opening from
+nowhere. Both endpoints take `substring` and escape it server-side, so a typed
+`.` or `[x]` is a literal.
 
 Highlighting has two rules worth keeping. It never builds HTML from search
 results or note content: the results list renders `<mark>` elements from
@@ -69,6 +74,21 @@ fence, so counting one would shift every later index), and the selector takes
 only marked's own `li > input:first-child`, so inline HTML in a note can't. Before
 writing, the source line's state must match what the box was showing; on mismatch
 or a failed write the box is reverted and nothing is committed.
+
+**Wiki links.** `GET /links?path=…` returns each `[[…]]` with what it resolves
+to; the grammar lives in kbmcp, so the editor never guesses a target. Rendering
+follows the same text-node rule as the highlighter, skipping `code`, `pre` and
+existing links. The one subtlety: resolutions arrive *after* the render they
+belong to, and converting `[[…]]` consumes the markers — so elements carry
+`data-raw` and `decorateWikiLink` re-runs over them, rather than a second pass
+looking for text that is no longer there. An empty `linkMap` means "not answered
+yet", not "all broken", since a note with links always returns one entry each.
+
+**History.** No router: `openFile` pushes `?note=<path>`, `popstate` reopens with
+`{history: false}`, and the on-load restore uses `replace: true` so landing on a
+note isn't a step you can go Back through. A refused "discard edits?" during
+`popstate` re-pushes the current note, because the browser has already moved by
+then. Query strings are safe for OAuth — `redirectUri()` is origin + pathname.
 
 **Change detection.** The REST API has no watch or SSE endpoint, but every write
 to the KB is a git commit, so `GET /history?max=1` is a cheap change token for

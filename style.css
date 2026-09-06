@@ -86,6 +86,24 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); }
   border-radius: 8px; background: var(--bg); color: var(--text); font-size: .88rem;
 }
 
+/* filename search, at the top of the tree */
+.tree-find { display: flex; gap: .35rem; padding: 0 .6rem .5rem; }
+.tree-find input {
+  min-width: 0; flex: 1; padding: .35rem .5rem; border: 1px solid var(--border);
+  border-radius: 8px; background: var(--bg); color: var(--text); font-size: .85rem;
+}
+.tree-find button { flex: none; padding: .35rem .6rem; font-size: .85rem; }
+.find-head { display: flex; align-items: center; gap: .4rem; padding: .1rem .6rem .35rem; font-size: .82rem; }
+.find-head button { padding: .2rem .5rem; font-size: .8rem; }
+.found { padding: .22rem .8rem; cursor: pointer; font-size: .9rem; }
+.found:hover { background: var(--accent-soft); }
+.found.active { background: var(--accent-soft); font-weight: 600; }
+.found-name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.found-dir {
+  display: block; font-size: .76rem; color: var(--muted); font-family: var(--mono);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
 /* search results, shown in the content pane */
 .results { flex: 1; overflow: auto; padding: .5rem 0 1.5rem; }
 .results-head {
@@ -112,6 +130,17 @@ button.ghost.on { background: var(--accent-soft); border-color: var(--accent); }
   font-family: var(--mono); font-size: .82rem; min-width: 0;
   white-space: pre-wrap; overflow-wrap: anywhere;
 }
+
+/* Wiki links. A resolved one behaves like a link; a broken one stays visible
+   and explains itself on hover rather than pretending to work. */
+.markdown .wikilink { color: var(--accent); cursor: pointer; }
+.markdown .wikilink:hover { text-decoration: underline; }
+.markdown .wikilink.broken {
+  color: var(--err); cursor: help;
+  text-decoration: underline dotted; text-underline-offset: .2em;
+}
+/* Resolutions arrive just after the render; until then a link is neither. */
+.markdown .wikilink.pending { color: var(--muted); cursor: default; }
 
 /* Task-list checkboxes are live: ticking one rewrites the line and commits. */
 .markdown li > input[type="checkbox"] { cursor: pointer; margin-right: .3rem; }

@@ -327,15 +327,20 @@ const App = {
     // Reopen the file this KB was left in. Silent on failure: a file that was
     // deleted or renamed since is forgotten, not an error to greet you with.
     async function restoreOpenFile(url) {
-      const path = localStorage.getItem(fileKey(url));
+      // A note named in the URL is an explicit request — a shared link, a
+      // reload, a restored tab — so it beats the remembered file.
+      const fromUrl = noteFromUrl();
+      const path = fromUrl || localStorage.getItem(fileKey(url));
       if (!path) return;
       try {
         const node = await revealPath(path);
         if (!node) {
-          localStorage.removeItem(fileKey(url));
+          if (!fromUrl) localStorage.removeItem(fileKey(url));
           return;
         }
-        await openFile(node);
+        // Replace rather than push: landing on a note is where the history
+        // starts, not a step within it.
+        await openFile(node, { replace: true });
       } catch (e) {
         /* the tree is still fine; just don't restore */
       }
@@ -401,14 +406,41 @@ const App = {
       if (view.value === 'browse') await restoreOpenFile(url);
     }
 
-    async function openFile(node) {
+    // --- browser history ------------------------------------------------------
+    //
+    // No router: an open note is just `?note=<path>` pushed onto the history
+    // stack, so the browser's Back button — and a phone's back gesture — walk
+    // the notes you followed, and a URL can be shared. Only notes are entries;
+    // search results are not, which keeps the query out of the URL and the
+    // ripgrep off the Back button.
+    //
+    // The query string is safe for the OAuth flow: redirectUri() is built from
+    // origin + pathname, and cleanUrl() strips everything else after login.
+    const NOTE_PARAM = 'note';
+
+    function noteFromUrl() {
+      return new URL(location.href).searchParams.get(NOTE_PARAM) || '';
+    }
+
+    function pushNoteUrl(path, replace = false) {
+      const url = new URL(location.href);
+      url.searchParams.set(NOTE_PARAM, path);
+      const how = replace ? 'replaceState' : 'pushState';
+      history[how]({ [NOTE_PARAM]: path }, '', url);
+    }
+
+    // openFile is the single door onto a note, so history is pushed here rather
+    // than at each call site. `history: false` is for openings that are *not*
+    // navigations: replaying a popstate, and the restore on load.
+    async function openFile(node, opts = {}) {
       if (selected.value && mode.value === 'edit' && editText.value !== content.value) {
-        if (!confirm('Discard unsaved edits?')) return;
+        if (!confirm('Discard unsaved edits?')) return false;
       }
       busy.value = true;
       banner.value = null;
       try {
         const { text, etag: tag } = await client.value.read(node.path);
+        if (opts.history !== false) pushNoteUrl(node.path, opts.replace === true);
         selected.value = node;
         content.value = text;
         etag.value = tag;
@@ -418,12 +450,30 @@ const App = {
         highlight.value = ''; // openMatch re-sets it after this returns
         treeOpen.value = false; // close the drawer after picking a file (mobile)
         localStorage.setItem(fileKey(kbUrl.value), node.path);
+        return true;
       } catch (e) {
         setError(e);
+        return false;
       } finally {
         busy.value = false;
       }
     }
+
+    // Open the note a history entry names. popstate fires *after* the browser
+    // has moved, so a refused "discard edits?" leaves the URL ahead of the app —
+    // push the note we're still on back over it rather than let the two lie.
+    async function openHistoryNote(path) {
+      if (!client.value || !path) return;
+      if (selected.value && selected.value.path === path) return;
+      const node = (await revealPath(path)) || { name: path.split('/').pop(), path, is_dir: false };
+      const opened = await openFile(node, { history: false });
+      if (!opened && selected.value) pushNoteUrl(selected.value.path, true);
+    }
+
+    window.addEventListener('popstate', (e) => {
+      const path = (e.state && e.state[NOTE_PARAM]) || noteFromUrl();
+      openHistoryNote(path);
+    });
 
     // Discard what we have and take the server's version of the open file.
     async function reloadFile() {
@@ -571,6 +621,162 @@ const App = {
       if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 
+    // --- filename search ------------------------------------------------------
+    //
+    // Lives in the tree, because it answers "which file" rather than "where is
+    // this text". Results replace the tree with a flat list rather than a
+    // filtered tree: a folder shown holding only its matching children reads as
+    // a folder that contains only those children.
+    const findTerm = ref('');
+    const findResults = ref(null); // null = the tree is showing the vault
+    const finding = ref(false);
+
+    async function runFind() {
+      const term = findTerm.value;
+      if (!term.trim()) {
+        clearFind();
+        return;
+      }
+      finding.value = true;
+      try {
+        const { paths, truncated } = await client.value.find(term);
+        findResults.value = { term, paths, truncated };
+      } catch (e) {
+        setError(e);
+      } finally {
+        finding.value = false;
+      }
+    }
+
+    function clearFind() {
+      findTerm.value = '';
+      findResults.value = null;
+    }
+
+    // Split a path for display: the filename reads normally, the folder sits
+    // behind it in muted text.
+    function pathParts(path) {
+      const at = path.lastIndexOf('/');
+      return at === -1 ? { dir: '', name: path } : { dir: path.slice(0, at), name: path.slice(at + 1) };
+    }
+
+    // Open a hit, leaving the results up: finding a file usually means opening
+    // a few of them in turn.
+    async function openFound(path) {
+      const node = (await revealPath(path)) || { name: pathParts(path).name, path, is_dir: false };
+      await openFile(node);
+    }
+
+    // --- wiki links -----------------------------------------------------------
+    //
+    // The server owns the grammar — name vs path, sibling-first, ambiguity — so
+    // the editor only asks where each link points and never guesses. Resolution
+    // depends on the note, not on the occurrence, so the same target twice in a
+    // note resolves the same way and a map keyed by target is enough.
+    const noteLinks = ref([]);
+    const linkMap = computed(() => new Map(noteLinks.value.map((l) => [l.target, l])));
+
+    async function loadLinks() {
+      if (!selected.value || creating.value || !client.value) {
+        noteLinks.value = [];
+        return;
+      }
+      try {
+        noteLinks.value = await client.value.links(selected.value.path);
+      } catch (e) {
+        noteLinks.value = []; // links stay plain text; not worth a banner
+      }
+    }
+
+    // Refetch whenever the note's text changes — opening, saving, ticking a box,
+    // or a sync pulling someone else's edit in.
+    watch(content, loadLinks);
+
+    // The address is everything before an |alias, #heading or ^block, matching
+    // what the server reports as the link's target.
+    function linkAddress(raw) {
+      return raw.split(/[|#^]/)[0].trim();
+    }
+
+    function linkDisplay(raw) {
+      const bar = raw.indexOf('|');
+      return bar === -1 ? raw.trim() : raw.slice(bar + 1).trim();
+    }
+
+    // Set a link element's state from the current resolutions. Kept separate
+    // from creating it, and driven by data-raw, because the resolutions usually
+    // arrive *after* the render they belong to — converting [[...]] consumes the
+    // markers, so a second pass has to be able to upgrade existing elements
+    // rather than look for text that is no longer there.
+    function decorateWikiLink(el, raw) {
+      const info = linkMap.value.get(linkAddress(raw));
+      el.textContent = linkDisplay(raw);
+      el.dataset.raw = raw;
+      el.onclick = null;
+      el.classList.remove('broken', 'pending');
+
+      if (info && info.resolved) {
+        el.title = info.resolved;
+        el.onclick = () => openFound(info.resolved);
+        return;
+      }
+      // An empty map means the answer hasn't arrived yet, not that everything is
+      // broken: a note with links always comes back with an entry per link.
+      if (linkMap.value.size === 0) {
+        el.classList.add('pending');
+        el.title = '';
+        return;
+      }
+      // A link that doesn't resolve stays visible and says why on hover, rather
+      // than looking like a working link or vanishing into plain text.
+      el.classList.add('broken');
+      const reason = (info && info.reason) || 'no note found for this link';
+      const candidates = info && info.candidates && info.candidates.length
+        ? `: ${info.candidates.join(', ')}`
+        : '';
+      el.title = reason + candidates;
+    }
+
+    function wikiLinkEl(raw) {
+      const el = document.createElement('a');
+      el.className = 'wikilink';
+      decorateWikiLink(el, raw);
+      return el;
+    }
+
+    // Replace [[...]] in the rendered note. Text nodes only, and never inside
+    // code or an existing link — the same reason the highlighter walks nodes
+    // instead of rewriting the HTML string.
+    function bindWikiLinks() {
+      const pane = notePane.value;
+      if (!pane) return;
+      const walker = document.createTreeWalker(pane, NodeFilter.SHOW_TEXT);
+      const targets = [];
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        if (node.parentElement && node.parentElement.closest('code, pre, a')) continue;
+        if (node.nodeValue.includes('[[')) targets.push(node);
+      }
+      const re = /\[\[([^[\]]+)\]\]/g;
+      for (const node of targets) {
+        const text = node.nodeValue;
+        const frag = document.createDocumentFragment();
+        let i = 0;
+        let m;
+        re.lastIndex = 0;
+        while ((m = re.exec(text)) !== null) {
+          if (m.index > i) frag.appendChild(document.createTextNode(text.slice(i, m.index)));
+          frag.appendChild(wikiLinkEl(m[1]));
+          i = m.index + m[0].length;
+        }
+        if (i < text.length) frag.appendChild(document.createTextNode(text.slice(i)));
+        node.parentNode.replaceChild(frag, node);
+      }
+      // Refresh the ones already converted, which is how a link created before
+      // its resolution arrived becomes clickable.
+      pane.querySelectorAll('a.wikilink[data-raw]').forEach((el) => decorateWikiLink(el, el.dataset.raw));
+    }
+
     // --- task checkboxes ------------------------------------------------------
     //
     // marked renders `- [ ]` as a disabled checkbox and DOMPurify keeps it, so
@@ -630,11 +836,13 @@ const App = {
       });
     }
 
-    // Re-mark and re-bind whenever the rendered HTML is replaced — including
-    // switching back from Raw, which recreates the pane element and drops both.
-    watch([rendered, highlight, mode], async () => {
+    // Re-decorate whenever the rendered HTML is replaced — including switching
+    // back from Raw, which recreates the pane element and drops all of it.
+    // noteLinks is a source too: it arrives after the render it belongs to.
+    watch([rendered, highlight, mode, noteLinks], async () => {
       await nextTick();
       applyHighlight();
+      bindWikiLinks();
       bindTaskBoxes();
     });
 
@@ -920,6 +1128,7 @@ const App = {
       hasFrontmatter, notePane, scrollToFrontmatter, scrollToContent,
       searchTerm, searchResults, searching, matchParts,
       runSearch, clearSearch, openMatch,
+      findTerm, findResults, finding, runFind, clearFind, pathParts, openFound,
       creating, staleFile, reloadFile, syncNow,
       connect, openFile, startEdit, cancelEdit, save, disconnect,
       showNew, newPath, newError, newInput, newFullPath, openNew, confirmNew,
@@ -971,7 +1180,31 @@ const App = {
         <div class="body">
           <div class="backdrop" @click="treeOpen = false"></div>
           <nav class="tree" @click="syncNow">
-            <ul>
+            <form class="tree-find" @submit.prevent="runFind">
+              <input v-model="findTerm" type="search" placeholder="Find file by name…" @search="runFind" />
+              <button class="ghost" type="submit" :disabled="finding">{{ finding ? '…' : 'Find' }}</button>
+            </form>
+
+            <div v-if="findResults" class="find-results">
+              <div class="find-head">
+                <span class="muted">
+                  {{ findResults.paths.length }}
+                  {{ findResults.paths.length === 1 ? 'file' : 'files' }}
+                </span>
+                <span class="spacer"></span>
+                <button class="ghost" @click="clearFind">Clear</button>
+              </div>
+              <p v-if="!findResults.paths.length" class="muted pad">No file matches.</p>
+              <div v-for="p in findResults.paths" :key="p" class="found"
+                   :class="{ active: selected && selected.path === p }"
+                   @click="openFound(p)">
+                <span class="found-name">{{ pathParts(p).name }}</span>
+                <span v-if="pathParts(p).dir" class="found-dir">{{ pathParts(p).dir }}</span>
+              </div>
+              <p v-if="findResults.truncated" class="muted pad">More matches than shown.</p>
+            </div>
+
+            <ul v-else>
               <tree-node
                 v-for="n in roots"
                 :key="n.path"

@@ -132,8 +132,34 @@ Marking follows ripgrep's smart case — a pattern containing an uppercase lette
 matches case-sensitively — so what's highlighted is exactly what the server
 counted as a match.
 
-Not yet: filename search, live search as you type, cycling between hits,
-restricting a search to a folder, regex mode.
+The box at the top of the tree searches **filenames** instead, via
+`GET /find?substring=…`. The term is escaped server-side before it reaches `fd`,
+so `meeting.md` matches that name literally rather than as a pattern whose `.`
+means any character. Results replace the tree with a flat list — filename over
+muted folder — and clicking one opens it while leaving the list up, since
+finding files usually means opening several. **Clear** restores the tree, already
+expanded to whatever you opened.
+
+That list is deliberately flat rather than a filtered tree: a folder shown
+holding only its matching children reads as a folder that contains only those
+children.
+
+Not yet: live search as you type, cycling between hits, restricting a search to
+a folder, regex mode.
+
+## Wiki links and history
+
+`[[wiki links]]` in a rendered note are clickable. Where each one points is
+decided by kbmcp (`GET /links?path=…`), not by the editor — a name resolves to a
+sibling first and then vault-wide, a target with a slash is a vault path, and an
+ambiguous name resolves to nothing. A link that doesn't resolve stays visible in
+dotted red and gives the reason on hover, listing the candidates when a name
+matched several notes.
+
+Opening a note pushes `?note=<path>` onto the browser's history, so Back walks
+the notes you followed and a URL can be shared or reloaded straight into a note.
+Only notes are history entries — search results aren't, which keeps queries out
+of the URL and a ripgrep off the Back button.
 
 ## Staying in sync
 

@@ -96,6 +96,29 @@ export function KbClient(kbUrl, tokenProvider) {
       return { matches: data.matches || [], truncated: !!data.truncated };
     },
 
+    // Filename search: matching paths, relative to the KB root. The server
+    // escapes the term, so what you type is matched literally against names.
+    async find(substring, { max } = {}) {
+      const q = new URLSearchParams({ substring });
+      if (max) q.set('max', max);
+      const r = await fetch(`${base}/find?${q}`, await init());
+      if (r.status === 401) throw new AuthError();
+      if (!r.ok) throw new Error(`find: ${r.status} ${(await r.text()).slice(0, 120)}`);
+      const data = await r.json();
+      return { paths: data.paths || [], truncated: !!data.truncated };
+    },
+
+    // A note's [[wiki links]] and what each resolves to. The server owns the
+    // grammar (name vs path, sibling-first, ambiguity), so the editor never has
+    // to guess where a link points.
+    async links(path) {
+      const r = await fetch(`${base}/links?path=${encodeURIComponent(path)}`, await init());
+      if (r.status === 401) throw new AuthError();
+      if (!r.ok) throw new Error(`links "${path}": ${r.status}`);
+      const data = await r.json();
+      return data.links || [];
+    },
+
     // Recent commits (newest first): [{hash, date, relative, author, subject}].
     async history({ max = 50, path = '' } = {}) {
       const q = new URLSearchParams();
