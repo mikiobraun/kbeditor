@@ -34,6 +34,9 @@ export function KbClient(kbUrl, tokenProvider) {
     const t = await tokenProvider();
     const h = { ...(extraHeaders || {}) };
     if (t) h.Authorization = `Bearer ${t}`;
+    // Names us in the KB's request log. Self-declared, so it identifies the app
+    // for a human reading logs — it proves nothing, and nothing depends on it.
+    h['X-Client-Id'] = 'kb-editor';
     return {
       mode: 'cors',
       credentials: t ? 'omit' : 'include',
