@@ -133,29 +133,48 @@ header .menu { display: none; font-size: 1.1rem; padding: .35rem .6rem; }
 .markdown th, .markdown td { border: 1px solid var(--border); padding: .35rem .6rem; }
 
 /* Frontmatter metadata (from/subject/date …) rendered as a compact card, not a
-   markdown heading. Borderless key/value rows above the note body. */
-.markdown table.frontmatter {
+   markdown heading. Key/value rows above the note body; nested maps and lists
+   of maps indent instead of being flattened away. */
+.markdown .frontmatter {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--panel);
   margin: 0 0 1.25rem;
+  padding: .15rem 0;
   font-size: .9rem;
 }
-.markdown table.frontmatter th,
-.markdown table.frontmatter td {
-  border: none;
-  border-bottom: 1px solid var(--border);
-  padding: .3rem .7rem;
-  text-align: left;
-  vertical-align: top;
+.markdown .fm-row {
+  display: flex;
+  gap: .6rem;
+  align-items: baseline;
+  padding: .22rem .7rem;
 }
-.markdown table.frontmatter tr:last-child th,
-.markdown table.frontmatter tr:last-child td { border-bottom: none; }
-.markdown table.frontmatter th {
+.markdown .fm-key {
+  flex: none;
+  min-width: 7rem;
   color: var(--muted);
   font-weight: 600;
-  white-space: nowrap;
-  width: 1%;
+  word-break: break-word;
+}
+.markdown .fm-val { min-width: 0; word-break: break-word; }
+/* Each nesting level steps in, with a rule marking the level it belongs to. */
+.markdown .fm-sub {
+  margin: 0 .7rem .2rem 1.2rem;
+  border-left: 2px solid var(--border);
+  padding-left: .5rem;
+}
+.markdown .fm-sub .fm-row { padding-left: 0; padding-right: 0; }
+.markdown .fm-parent { padding-bottom: .05rem; }
+/* One element of a list of maps, separated so its fields read as a unit. */
+.markdown .fm-item + .fm-item { border-top: 1px dashed var(--border); margin-top: .2rem; padding-top: .2rem; }
+/* Frontmatter that YAML can't parse: shown as written rather than dropped. */
+.markdown .frontmatter-raw {
+  border: 1px dashed var(--border);
+  background: var(--panel);
+  margin: 0 0 1.25rem;
+  padding: .6rem .7rem;
+  font-size: .82rem;
+  white-space: pre-wrap;
 }
 
 /* misc */

@@ -1,6 +1,7 @@
 import { createApp, reactive, ref, computed, inject, provide, onMounted, nextTick } from 'vue';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
+import { load as loadYaml, FAILSAFE_SCHEMA } from 'js-yaml';
 import { KbClient, AuthError } from './api.js';
 import * as auth from './auth.js';
 
@@ -13,34 +14,87 @@ function escapeHtml(s) {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-// splitFrontmatter pulls a leading YAML frontmatter block (--- … ---) off the
-// top of a note and parses its flat `key: value` lines. Emails written into the
-// vault carry metadata (from/subject/date) this way; without splitting it out,
-// marked renders the closing --- as a setext heading. Only top-level scalar
-// fields are parsed — enough for note/email metadata, not full YAML.
+// splitFrontmatter separates a leading YAML frontmatter block (--- … ---) from
+// the note body, returning the block's text unparsed — what to do with a block
+// that won't parse is the renderer's call. Without the split, marked renders the
+// closing --- as a setext heading.
 function splitFrontmatter(text) {
-  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
-  if (!m) return { meta: null, body: text };
-  const meta = {};
-  for (const line of m[1].split(/\r?\n/)) {
-    const kv = /^([A-Za-z0-9_-]+):\s?(.*)$/.exec(line);
-    if (kv) meta[kv[1]] = kv[2].trim().replace(/^["'](.*)["']$/, '$1');
-  }
-  return { meta, body: text.slice(m[0].length) };
+  // The content group is optional so that an empty block (`---` then `---`)
+  // still counts as frontmatter; without that the delimiters reach marked and
+  // render as horizontal rules. Requiring the newline *inside* that group keeps
+  // the closing `---` at the start of a line, so a value ending in `---`
+  // doesn't close the block early.
+  const m = /^---\r?\n(?:([\s\S]*?)\r?\n)?---[ \t]*(?:\r?\n|$)/.exec(text);
+  if (!m) return { raw: null, body: text };
+  return { raw: m[1] || '', body: text.slice(m[0].length) };
 }
 
-// renderNote renders a note to sanitized HTML: a metadata table for the
-// frontmatter (if any), then the markdown body.
-function renderNote(text) {
-  const { meta, body } = splitFrontmatter(text || '');
-  let html = '';
-  if (meta && Object.keys(meta).length) {
-    const rows = Object.entries(meta)
-      .map(([k, v]) => `<tr><th>${escapeHtml(k)}</th><td>${escapeHtml(v)}</td></tr>`)
-      .join('');
-    html += `<table class="frontmatter">${rows}</table>`;
+// A frontmatter value is scalar for display purposes when it isn't a map or a
+// list. Under the failsafe schema that means it's a string.
+function isScalar(v) {
+  return v === null || typeof v !== 'object';
+}
+
+// inlineValue renders the values that fit on the key's own row: a scalar, or a
+// list of scalars joined with commas. Anything with structure returns null and
+// gets a block instead.
+function inlineValue(v) {
+  const text = (x) => (x === null || x === undefined ? '' : String(x));
+  if (isScalar(v)) return escapeHtml(text(v));
+  if (Array.isArray(v) && v.every(isScalar)) return escapeHtml(v.map(text).join(', '));
+  return null;
+}
+
+// fmRows renders a parsed frontmatter value as indented key/value rows. A map
+// nests one level deeper; a list carrying structure (the vault's `attachments`,
+// say) puts each element in its own group, so it stays visible which values
+// belong together.
+function fmRows(v) {
+  if (Array.isArray(v)) {
+    return v.map((item) => `<div class="fm-item">${fmRows(item)}</div>`).join('');
   }
-  html += marked.parse(body);
+  if (isScalar(v)) {
+    return `<div class="fm-row"><span class="fm-val">${escapeHtml(v === null ? '' : String(v))}</span></div>`;
+  }
+  return Object.entries(v)
+    .map(([k, val]) => {
+      const key = `<span class="fm-key">${escapeHtml(k)}</span>`;
+      const inline = inlineValue(val);
+      if (inline !== null) return `<div class="fm-row">${key}<span class="fm-val">${inline}</span></div>`;
+      return `<div class="fm-row fm-parent">${key}</div><div class="fm-sub">${fmRows(val)}</div>`;
+    })
+    .join('');
+}
+
+// renderFrontmatter turns the raw block into the metadata card. The parse runs
+// under YAML's failsafe schema, so every scalar stays the text that was written
+// — nothing is guessed to be a date, a number or a boolean, which keeps what you
+// see equal to what the file says. A block that won't parse is shown verbatim
+// rather than dropped or turned into an error, the same line kbmcp takes.
+function renderFrontmatter(raw) {
+  // An empty block (`---` immediately followed by `---`) is a note with no
+  // metadata, not a broken one. js-yaml rejects empty input as an error, so
+  // this has to be settled before parsing.
+  if (!raw.trim()) return '';
+  let data;
+  try {
+    data = loadYaml(raw, { schema: FAILSAFE_SCHEMA });
+  } catch (e) {
+    return `<pre class="frontmatter-raw">${escapeHtml(raw)}</pre>`;
+  }
+  const rows = data === null || data === undefined ? '' : fmRows(data);
+  return rows ? `<div class="frontmatter">${rows}</div>` : '';
+}
+
+// renderNote renders a note to sanitized HTML: the frontmatter card (if any),
+// then the markdown body.
+function renderNote(text) {
+  const { raw, body } = splitFrontmatter(text || '');
+  const card = raw === null ? '' : renderFrontmatter(raw);
+  // A marker between the card and the body gives the toolbar's Content button
+  // something to scroll to. A class rather than an id: ids in note content
+  // could collide, classes we query for can't.
+  const html = card + (card ? '<div class="note-body-start"></div>' : '') + marked.parse(body);
   return DOMPurify.sanitize(html);
 }
 
@@ -157,6 +211,26 @@ const App = {
     const staleFile = ref(false); // it changed on the server while we were editing
 
     const rendered = computed(() => renderNote(content.value));
+    // Whether there's a metadata card to jump between. Frontmatter has no
+    // meaningful order, so there's no "first few rows worth showing" — the
+    // answer to a long block is to skip past it, not to truncate it.
+    const hasFrontmatter = computed(() => {
+      const { raw } = splitFrontmatter(content.value || '');
+      return !!(raw && raw.trim());
+    });
+
+    // The rendered pane is its own scroll container, so these scroll it rather
+    // than the window.
+    const notePane = ref(null);
+
+    function scrollToFrontmatter() {
+      if (notePane.value) notePane.value.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function scrollToContent() {
+      const marker = notePane.value && notePane.value.querySelector('.note-body-start');
+      if (marker) marker.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
 
     function setError(e) {
       banner.value = { kind: 'err', text: e.message || String(e) };
@@ -585,6 +659,7 @@ const App = {
     return {
       view, kbUrl, manualToken, showAdvanced, busy, banner, treeOpen, forgetClient,
       roots, selected, content, etag, mode, editText, commitMsg, saving, rendered,
+      hasFrontmatter, notePane, scrollToFrontmatter, scrollToContent,
       creating, staleFile, reloadFile, syncNow,
       connect, openFile, startEdit, cancelEdit, save, disconnect,
       showNew, newPath, newError, newInput, newFullPath, openNew, confirmNew,
@@ -649,6 +724,10 @@ const App = {
                 <span class="path">{{ selected.path }}<span v-if="creating" class="muted"> · new</span></span>
                 <span class="spacer"></span>
                 <template v-if="mode !== 'edit'">
+                  <template v-if="mode === 'view' && hasFrontmatter">
+                    <button class="ghost" @click="scrollToFrontmatter">Frontmatter</button>
+                    <button class="ghost" @click="scrollToContent">Content</button>
+                  </template>
                   <button class="ghost" :class="{ on: mode === 'view' }" @click="mode = 'view'">Rendered</button>
                   <button class="ghost" :class="{ on: mode === 'raw' }" @click="mode = 'raw'">Raw</button>
                   <button @click="startEdit">Edit</button>
@@ -659,7 +738,7 @@ const App = {
                   <button class="ghost" @click="cancelEdit">Cancel</button>
                 </template>
               </div>
-              <div v-if="mode === 'view'" class="markdown" v-html="rendered"></div>
+              <div v-if="mode === 'view'" class="markdown" ref="notePane" v-html="rendered"></div>
               <pre v-else-if="mode === 'raw'" class="raw">{{ content }}</pre>
               <textarea v-else class="editor" v-model="editText"></textarea>
             </template>

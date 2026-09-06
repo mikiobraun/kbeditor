@@ -139,12 +139,23 @@ the token, and with it the automatic reconnect.
 
 ## Viewing
 
-Notes render as sanitized markdown, with a leading YAML frontmatter block (only
-flat `key: value` scalars are parsed) pulled out and shown as a metadata card —
-emails written into the vault carry `from`/`subject`/`date` that way, and without
-the split `marked` turns the closing `---` into a setext heading. **Raw** shows
-the file verbatim. **Log** in the header lists the KB's recent commits
-(`GET /history`).
+Notes render as sanitized markdown, with a leading YAML frontmatter block pulled
+out and shown as a metadata card (without the split, `marked` turns the closing
+`---` into a setext heading). The card handles the full structure the vault
+actually uses — the mail notes carry nested maps and lists of maps — so nested
+keys indent and each element of a list keeps its fields grouped. Scalar lists sit
+inline: `tags: inbox, work`.
+
+Values are shown exactly as written. Parsing uses YAML's failsafe schema, which
+knows only maps, sequences and strings, so `date: 2026-09-06` stays that text
+instead of becoming a JavaScript `Date` that prints as
+`Sun Sep 06 2026 00:00:00 GMT+0200`. A block that won't parse is shown verbatim
+rather than dropped.
+
+Since frontmatter has no meaningful ordering, a long block isn't truncated —
+**Frontmatter** and **Content** in the toolbar jump between the card and the note
+body instead. **Raw** shows the file verbatim, and **Log** in the header lists
+the KB's recent commits (`GET /history`).
 
 ## Status / not yet done
 

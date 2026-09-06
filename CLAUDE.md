@@ -104,10 +104,22 @@ commit. That save goes out with `If-None-Match: *` instead, so losing a race to
 the same path fails rather than overwriting — hence the two different 412
 messages in `api.js`.
 
-**Rendering.** `renderNote` splits leading YAML frontmatter off (flat scalar keys
-only) and renders it as a table, then `marked` + `DOMPurify.sanitize` for the
-body. Without the split, `marked` turns the closing `---` into a setext heading.
-Anything that reaches `v-html` must go through `DOMPurify`.
+**Rendering.** `renderNote` splits leading YAML frontmatter off and renders it as
+an indented card (`fmRows`), then `marked` + `DOMPurify.sanitize` for the body.
+Anything reaching `v-html` must go through `DOMPurify`.
+
+The frontmatter parse runs under js-yaml's **failsafe schema** — maps, sequences
+and strings only — so nothing is guessed to be a date, number or boolean and the
+card shows the text the file actually contains. A block that won't parse is
+rendered verbatim rather than dropped, matching kbmcp's stance server-side
+(`frontmatter.go:1-8`). A blank block short-circuits before parsing, since
+js-yaml 5 treats empty input as an error.
+
+`splitFrontmatter`'s regex has two non-obvious requirements: the content group is
+optional, so an empty `---`/`---` block is still frontmatter rather than two
+horizontal rules; and the newline lives *inside* that group, which keeps the
+closing `---` at a line start so a value ending in `---` can't close the block
+early. A marker div between card and body anchors the toolbar's Content button.
 
 ## Deployment gotcha: CORS
 
