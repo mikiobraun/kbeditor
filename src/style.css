@@ -181,11 +181,29 @@ header .menu { display: none; font-size: 1.1rem; padding: .35rem .6rem; }
   display: flex; align-items: center; gap: .5rem; padding: .5rem .8rem;
   border-bottom: 1px solid var(--border);
 }
-.toolbar .path { font-family: var(--mono); font-size: .82rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+/* The folder gives way, the filename never does: truncating the end of
+   "tax/2026-q3/anthropic-2026-09-04.md" would throw away the part that says
+   which note you are looking at. Two spans, and only the first can shrink. */
+.toolbar .path {
+  display: flex; min-width: 0; overflow: hidden;
+  font-family: var(--mono); font-size: .82rem; color: var(--muted);
+}
+/* Both can shrink, but the folder gives way ~100x more readily, so the
+   filename only starts losing characters once the folder has collapsed. Both
+   need min-width:0 and their own ellipsis, or a long name simply overflows and
+   draws underneath the buttons. */
+.toolbar .path-dir,
+.toolbar .path-name {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.toolbar .path-dir { flex: 0 100 auto; }
+.toolbar .path-name { flex: 0 1 auto; }
 .toolbar .msg {
   flex: 1; min-width: 8rem; padding: .4rem .6rem; border: 1px solid var(--border);
   border-radius: 8px; background: var(--bg); color: var(--text);
 }
+/* Toolbar buttons carry both a word and a glyph; the breakpoint picks one. */
+.toolbar .icon { display: none; }
 .empty { padding: 2rem; }
 .markdown, .raw, .editor { flex: 1; overflow: auto; padding: 1.25rem 1.5rem; }
 .raw { font-family: var(--mono); font-size: .85rem; white-space: pre-wrap; margin: 0; }
@@ -283,7 +301,60 @@ header .menu { display: none; font-size: 1.1rem; padding: .35rem .6rem; }
 
   .pane { width: 100%; }
   .markdown, .raw, .editor { padding: 1rem 1.1rem; }
-  .toolbar { flex-wrap: wrap; }
+  /* One line: the path shrinks (folder first) so the buttons never wrap onto a
+     row of their own. Edit mode still wraps — the commit message field needs
+     real width, and Save must not be squeezed to nothing. */
+  .toolbar { flex-wrap: nowrap; }
+  .browser.editing .toolbar { flex-wrap: wrap; }
+
+  /* Five words don't fit next to a path on a phone, so the view buttons show
+     their glyph instead. The word stays in aria-label, so a screen reader
+     still hears "Rendered" rather than an eye. The edit-mode toolbar keeps its
+     words: Save and Cancel are short, and worth being unambiguous. */
+  .toolbar .icon { display: inline; }
+  .toolbar .label { display: none; }
+  .toolbar button { padding: .4rem .55rem; font-size: 1rem; line-height: 1; }
+
+  /* The header's buttons claim their full width before the search box gets a
+     say, which on a phone leaves it a few pixels wide. Give it a row of its
+     own, and drop the KB URL: it is long, purely informational, and you know
+     which knowledge base you are in. */
+  .browser header { flex-wrap: wrap; row-gap: .5rem; }
+  .browser header .kb { display: none; }
+  .browser header .search { flex: 1 0 100%; order: 1; }
+
+  /* Scrolling down into a note puts the chrome away; scrolling up brings it
+     back. Only on a phone, and never while editing — see onPaneScroll.
+     max-height rather than display, so it can be animated: the rows collapse
+     instead of snapping, which is much less startling when it returns
+     mid-note. The value only has to exceed the real height; the header is at
+     most two rows here and the toolbar three. */
+  /* The two directions are timed separately: a transition is governed by the
+     state being moved *to*, so the base rule times the return and the
+     .chrome-hidden rule times the retreat. Going away should be brisk — you
+     asked for the space; coming back is unrequested motion under your eyes, so
+     it eases in over three times as long. The opacity runs the full duration
+     so the fade starts on the first frame, covering the moment max-height
+     spends between the cap and the real height. */
+  .browser header,
+  .browser .toolbar {
+    overflow: hidden;
+    max-height: 10rem;
+    transition: max-height .66s ease, opacity .66s ease,
+                padding-top .66s ease, padding-bottom .66s ease;
+  }
+  /* While editing, only the header goes: Save and the commit message live in
+     the toolbar, and having to scroll up to save would be hostile. */
+  .browser.chrome-hidden header,
+  .browser.chrome-hidden:not(.editing) .toolbar {
+    max-height: 0;
+    opacity: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-bottom-width: 0;
+    transition: max-height .22s ease, opacity .18s ease,
+                padding-top .22s ease, padding-bottom .22s ease;
+  }
 }
 
 /* Recent-changes log modal */

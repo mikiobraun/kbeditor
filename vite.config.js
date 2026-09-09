@@ -1,18 +1,11 @@
 import { defineConfig } from 'vite';
+import vue from '@vitejs/plugin-vue';
 
-// No framework plugin: the app is plain ES modules with Vue used via string
-// `template:` options. That means it needs the Vue build that ships the runtime
-// template compiler — npm's bare `vue` resolves to the runtime-only build, which
-// can't compile those templates, so alias it to the esm-bundler build.
+// Components are single-file components, so their templates are compiled at
+// build time and the runtime-only `vue` build is all the browser needs — no
+// esm-bundler alias, and no template compiler shipped to the client.
 export default defineConfig({
-  resolve: {
-    alias: { vue: 'vue/dist/vue.esm-bundler.js' },
-  },
-  define: {
-    // Feature flags the esm-bundler build expects (silences build-time warnings).
-    __VUE_OPTIONS_API__: 'true',
-    __VUE_PROD_DEVTOOLS__: 'false',
-  },
+  plugins: [vue()],
   server: {
     // Caddy reverse-proxies editor.example.com → localhost:8072, so keep that
     // port (replaces the old `python -m http.server 8072`).

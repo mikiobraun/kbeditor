@@ -11,23 +11,31 @@ REST interface (`/files`).
 
 ## Stack
 
-- **Vue 3** with **Vite** as the dev server / bundler. No SFCs and no framework
-  plugin: components are plain objects with string `template:` options, so
-  `vite.config.js` aliases `vue` to the esm-bundler build (the default npm entry
-  is runtime-only and can't compile those templates).
-- **marked** for markdown, **DOMPurify** to sanitize the rendered HTML.
-- Plain `fetch` against the kbmcp REST API.
+- **Vue 3** single-file components, built by **Vite**. Templates compile at build
+  time, so the browser gets the runtime-only Vue and never a template compiler.
+- **marked** for markdown, **DOMPurify** to sanitize it, **js-yaml** for
+  frontmatter.
+- Plain `fetch` against the kbmcp REST API. No store, no router, no UI framework.
+- **vitest** for tests; jsdom only where a test needs a DOM.
 
-Files:
+Layout:
 
-| file | role |
+| path | role |
 |---|---|
-| `index.html` | mount point + entry script |
-| `app.js` | root component, file tree (`TreeNode`), viewer/editor |
-| `api.js` | kbmcp REST client (`list` / `read` / `write` / `history`) |
-| `auth.js` | OAuth 2.1 authorization-code + PKCE against volume-auth |
-| `style.css` | styling (light/dark aware) |
-| `vite.config.js` | Vue alias, dev-server host/port, HMR-through-Caddy setup |
+| `src/main.js` | mounts the app |
+| `src/api.js` | kbmcp REST client (`list` / `read` / `write` / `search` / `find` / `links` / `history`) |
+| `src/auth.js` | OAuth 2.1 authorization-code + PKCE against volume-auth |
+| `src/lib/` | pure functions — markdown and frontmatter rendering, task lines, text helpers. No Vue, no DOM, all unit-tested |
+| `src/composables/` | the behaviour: the open document, the tree, search, sync, links and checkboxes, history, mobile chrome |
+| `src/components/` | `App.vue` (layout and wiring) plus the pieces that own state or are pure views |
+| `src/style.css` | styling (light/dark aware) |
+| `vite.config.js` | dev-server host/port and HMR-through-Caddy setup |
+
+Composables take their collaborators as arguments rather than importing them, so
+dependencies point one way and a test can pass stubs. Markup becomes a component
+only when it owns state (the connect screen, the dialogs) or is a pure view of
+props (the two result lists) — the header, toolbar and tree stay in `App.vue`,
+since extracting them would only move markup while leaving the state behind.
 
 ## Running
 
@@ -36,6 +44,7 @@ npm install
 npm run dev       # Vite on 127.0.0.1:8072
 npm run build     # static bundle -> dist/
 npm run preview   # serve the built bundle
+npm test          # vitest
 ```
 
 A secure context is required for `crypto.subtle` and OAuth redirects, so reach
