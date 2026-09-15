@@ -1,9 +1,10 @@
-import { ref, computed, nextTick } from 'vue';
+import { ref, computed, nextTick, watch } from 'vue';
 import { renderNote, splitFrontmatter } from '../lib/markdown.js';
+import { pathParts, splitExt, renamedPath } from '../lib/text.js';
 import { NotFoundError } from '../api.js';
 
 // The open note: its text, which mode you are looking at it in, and every way it
-// changes — opening, editing, saving, creating, deleting.
+// changes — opening, editing, saving, creating, renaming, deleting.
 //
 // This is the app's centre, which is why it takes so many collaborators. They
 // are passed in rather than imported so the dependencies point one way: the
@@ -20,6 +21,7 @@ export function useDocument({
   forget,
   afterCreate,       // refresh the tree and hand back the real node, if any
   afterDelete,       // refresh the tree and mark our commit as seen
+  afterMove,         // the same, then hand back the tree node at the new path, if any
   markSynced,
 }) {
   const selected = ref(null); // node
@@ -280,6 +282,114 @@ export function useDocument({
     }
   }
 
+  // --- renaming ---
+  //
+  // Only the name changes, never the folder: the dialog edits the name without
+  // its extension. The server rewrites every wiki link the rename would
+  // otherwise break or send elsewhere, in the same commit, so nothing is renamed
+  // before you have seen those rewrites. The first submit is a dry run that
+  // lists them; the second renames. Changing the name asks again, since the
+  // rewrites depend on it.
+  const showRename = ref(false);
+  const renameStem = ref('');
+  const renameMsg = ref('');
+  const renamePlan = ref(null); // the dry run's report for the name as typed
+  const renameError = ref(null);
+  const renaming = ref(false);
+  const renameInput = ref(null);
+
+  const renameTarget = computed(() =>
+    selected.value ? renamedPath(selected.value.path, renameStem.value.trim()) : '');
+
+  watch(renameStem, () => {
+    renamePlan.value = null;
+    renameError.value = null;
+  });
+
+  async function askRename() {
+    if (!selected.value || creating.value) return;
+    renameStem.value = splitExt(pathParts(selected.value.path).name).stem;
+    renamePlan.value = null;
+    renameError.value = null;
+    showRename.value = true;
+    await nextTick();
+    if (renameInput.value) renameInput.value.select();
+  }
+
+  function submitRename() {
+    return renamePlan.value ? confirmRename() : previewRename();
+  }
+
+  async function previewRename() {
+    const stem = renameStem.value.trim();
+    const from = selected.value.path;
+    const to = renameTarget.value;
+    if (!stem) {
+      renameError.value = 'Enter a name.';
+      return;
+    }
+    if (stem.includes('/')) {
+      renameError.value = 'A name can’t contain “/” — renaming keeps the file in its folder.';
+      return;
+    }
+    if (to === from) {
+      renameError.value = 'That is the current name.';
+      return;
+    }
+    renaming.value = true;
+    renameError.value = null;
+    try {
+      const message = `Rename ${from} to ${to}`;
+      const plan = await client.value.move(from, to, message, { dryRun: true, ifMatch: etag.value || undefined });
+      // The name may have changed while the dry run was out; that answer is for
+      // a name no longer in the box.
+      if (renameTarget.value !== to) return;
+      renamePlan.value = plan;
+      renameMsg.value = message;
+    } catch (e) {
+      if (e instanceof NotFoundError) {
+        showRename.value = false;
+        fileGone();
+      } else {
+        renameError.value = e.message || String(e);
+      }
+    } finally {
+      renaming.value = false;
+    }
+  }
+
+  async function confirmRename() {
+    if (!renameMsg.value.trim()) return;
+    const from = selected.value.path;
+    const to = renameTarget.value;
+    renaming.value = true;
+    setBanner(null);
+    try {
+      const res = await client.value.move(from, to, renameMsg.value.trim(), { ifMatch: etag.value || undefined });
+      showRename.value = false;
+      const node = await afterMove(to);
+      // Replace, not push: Back to the old path would only find it gone. The
+      // reopen also picks up the note's own links, if the rename rewrote any.
+      await openFile(node || { name: pathParts(to).name, path: to, is_dir: false }, { replace: true });
+      const notes = new Set(res.links.map((l) => l.path)).size;
+      setBanner({
+        kind: 'info',
+        text: res.links.length
+          ? `Renamed to ${pathParts(to).name} and updated ${res.links.length} link${res.links.length === 1 ? '' : 's'} in ${notes} note${notes === 1 ? '' : 's'}.`
+          : `Renamed to ${pathParts(to).name}.`,
+      });
+    } catch (e) {
+      if (e instanceof NotFoundError) {
+        showRename.value = false;
+        fileGone();
+      } else {
+        renameError.value = e.message || String(e);
+      }
+    } finally {
+      renaming.value = false;
+    }
+  }
+
   // The open note was deleted by someone else — noticed by a sync, or by a read
   // that came back 404. Viewing, there is nothing left to show. Editing, the
   // buffer is your work, so it is kept and becomes a new file: saving creates
@@ -324,5 +434,7 @@ export function useDocument({
     showNew, newPath, newError, newInput, newFullPath, openNew, confirmNew,
     showCommitPrompt, commitInput, save, confirmCommit,
     showDelete, deleteMsg, deleting, deleteInput, askDelete, confirmDelete,
+    showRename, renameStem, renameMsg, renamePlan, renameError, renaming, renameInput, renameTarget,
+    askRename, submitRename,
   };
 }

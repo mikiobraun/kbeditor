@@ -407,5 +407,14 @@ ul.log li:last-child { border-bottom: none; }
 .new-file code { font-family: var(--mono); word-break: break-all; }
 .new-file .actions { display: flex; gap: .5rem; margin-top: .9rem; }
 
+/* Folder and extension frame the editable name, so it reads as the one part
+   a rename changes. */
+.rename-name { display: flex; align-items: center; gap: .25rem; font-family: var(--mono); font-size: .9rem; }
+.rename-name input { flex: 1; min-width: 6rem; }
+.rename-name .muted { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rewrites { list-style: none; margin: 0 0 .6rem; padding: 0; max-height: 14rem; overflow-y: auto; font-size: .8rem; }
+.rewrites li { padding: .3rem 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+.rewrites code { font-family: var(--mono); }
+
 /* The stale-file banner carries an action, so it needs to align its button. */
 .banner button { margin-left: .5rem; }

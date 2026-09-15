@@ -4,6 +4,7 @@
 // read()  -> GET  /files/<path>  (raw content + ETag)
 // write() -> PUT  /files/<path>  (?message=…, optional If-Match; commits)
 // remove() -> DELETE /files/<path> (?message=…, optional If-Match; commits)
+// move()   -> POST /move (?from=…&to=…&message=…, optional If-Match; commits)
 
 // Signals that the server rejected us for auth reasons and a (re)login is needed.
 export class AuthError extends Error {
@@ -111,6 +112,29 @@ export function KbClient(kbUrl, tokenProvider) {
       }
       if (!r.ok) throw new Error(`delete "${path}": ${r.status} ${(await r.text()).slice(0, 120)}`);
       return r.json();
+    },
+
+    // Move a file and commit it together with every wiki link the server had to
+    // rewrite so it keeps its target. dryRun returns the same report without
+    // writing — above all `links`, [{path, line, old, new}] — so the rewrites can
+    // be shown before anything changes. With ifMatch the server refuses if the
+    // file changed since it was read.
+    async move(from, to, message, opts = {}) {
+      const extra = {};
+      if (opts.ifMatch) extra['If-Match'] = opts.ifMatch;
+      const q = new URLSearchParams({ from, to, message });
+      if (opts.dryRun) q.set('dry_run', 'true');
+      const r = await fetch(`${base}/move?${q}`, await init(extra, { method: 'POST' }));
+      if (r.status === 401) throw new AuthError();
+      if (r.status === 404) throw new NotFoundError(from);
+      if (r.status === 412) {
+        throw new Error('the file changed on the server since you opened it — reload before renaming');
+      }
+      // The server's refusals say what is wrong (destination taken, uncommitted
+      // changes in a note whose link needs rewriting), so pass them on.
+      if (!r.ok) throw new Error((await r.text()).trim().slice(0, 200) || `move "${from}": ${r.status}`);
+      const data = await r.json();
+      return { ...data, links: data.links || [] };
     },
 
     // Content search across the KB: [{path, line, text}] plus a truncated flag.

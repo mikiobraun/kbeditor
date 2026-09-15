@@ -92,9 +92,9 @@ in the app.
 Because this is a separate origin from the KB, the **servers it calls** must send
 CORS headers — not the server that hosts these files. Two of them:
 
-- **The KB gateway** (in front of kbmcp), for `/files`: allow this app's origin,
+- **The KB gateway** (in front of kbmcp), for `/files` and `/move`: allow this app's origin,
   `Expose-Headers: ETag` (needed for the If-Match save flow), the methods
-  `GET, PUT, DELETE, OPTIONS`, and the headers `Authorization, Content-Type, If-Match,
+  `GET, PUT, POST, DELETE, OPTIONS`, and the headers `Authorization, Content-Type, If-Match,
   If-None-Match`. Crucially, let the **unauthenticated `OPTIONS` preflight bypass
   forward_auth**, or the browser's preflight gets redirected to login and the
   request fails.
@@ -130,6 +130,15 @@ dialog asking for the commit message (pre-filled as `Delete <path>`). It sends
 rather than deleted. kbmcp also refuses a file with uncommitted changes, so every
 deletion can be undone from history. Afterwards the pane is empty and `?note=` is
 dropped from the URL.
+
+**Rename** changes the open note's name, never its folder: the dialog edits the
+name without its extension. Renaming can change what wiki links elsewhere point
+at, so kbmcp rewrites every link that would otherwise lose its target, in the
+same commit (`POST /move`). The first **Preview** is a dry run that lists those
+rewrites. **Rename** then commits with a message pre-filled as
+`Rename <old> to <new>`. Editing the name goes back to the preview step. The
+move carries `If-Match`, and kbmcp refuses it when the name is taken or when the
+note, or a note whose link needs rewriting, has uncommitted changes.
 
 ## Search
 
@@ -234,8 +243,8 @@ the KB's recent commits (`GET /history`).
 
 ## Status / not yet done
 
-- Viewer, single-file editing, create. No rename / delete UI (the REST API is
-  read + create/overwrite; delete isn't exposed server-side).
+- Viewer, single-file editing, create, rename, delete. No moving a note to
+  another folder from the UI yet (kbmcp's `POST /move` already supports it).
 - No wiki-link navigation (kbmcp exposes `backlinks`/`outgoing_links` over MCP,
   not REST).
 - Tree loads lazily per folder; no search box yet.

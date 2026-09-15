@@ -91,6 +91,9 @@
                   <button @click="startEdit" title="Edit" aria-label="Edit">
                     <span class="icon" aria-hidden="true">✏️</span><span class="label">Edit</span>
                   </button>
+                  <button class="ghost" @click="askRename" title="Rename" aria-label="Rename">
+                    <span class="icon" aria-hidden="true">✎</span><span class="label">Rename</span>
+                  </button>
                   <button class="ghost" @click="askDelete" title="Delete" aria-label="Delete">
                     <span class="icon" aria-hidden="true">🗑</span><span class="label">Delete</span>
                   </button>
@@ -136,6 +139,47 @@
           </form>
         </modal-dialog>
 
+        <modal-dialog v-if="showRename" title="Rename file" @close="showRename = false">
+          <form class="new-file" @submit.prevent="submitRename">
+            <div class="rename-name">
+              <span v-if="pathParts(selected.path).dir" class="muted">{{ pathParts(selected.path).dir }}/</span>
+              <input ref="renameInput" v-model="renameStem" aria-label="New name" />
+              <span class="muted">{{ splitExt(pathParts(selected.path).name).ext }}</span>
+            </div>
+            <p v-if="renameError" class="err">{{ renameError }}</p>
+            <template v-if="renamePlan">
+              <p v-if="renamePlan.links.length === 0" class="muted">
+                No wiki link needs rewriting; only the file is renamed.
+              </p>
+              <template v-else>
+                <p class="muted">
+                  Also rewrites {{ renamePlan.links.length }}
+                  link{{ renamePlan.links.length === 1 ? '' : 's' }} so
+                  {{ renamePlan.links.length === 1 ? 'it keeps its' : 'they keep their' }} target:
+                </p>
+                <ul class="rewrites">
+                  <li v-for="l in renamePlan.links" :key="`${l.path}:${l.line}:${l.old}`">
+                    <div class="muted"><code>{{ l.path }}:{{ l.line }}</code></div>
+                    <code>{{ l.old }}</code> → <code>{{ l.new }}</code>
+                  </li>
+                </ul>
+              </template>
+              <input v-model="renameMsg" placeholder="commit message" aria-label="Commit message" />
+            </template>
+            <p v-else class="muted">
+              Renames <code>{{ selected.path }}</code> to <code>{{ renameTarget }}</code>. Wiki links
+              that would stop reaching their note are rewritten in the same commit — you’ll see
+              which before anything changes.
+            </p>
+            <div class="actions">
+              <button type="submit" :disabled="renaming || (renamePlan && !renameMsg.trim())">
+                {{ renaming ? (renamePlan ? 'Renaming…' : 'Checking…') : (renamePlan ? 'Rename' : 'Preview') }}
+              </button>
+              <button type="button" class="ghost" @click="showRename = false">Cancel</button>
+            </div>
+          </form>
+        </modal-dialog>
+
         <modal-dialog v-if="showNew" title="New file" @close="showNew = false">
           <form class="new-file" @submit.prevent="confirmNew">
             <input ref="newInput" v-model="newPath" placeholder="notes/idea.md" />
@@ -176,7 +220,7 @@ import ModalDialog from './ModalDialog.vue';
 import SearchResults from './SearchResults.vue';
 import FindResults from './FindResults.vue';
 import { renderNote, splitFrontmatter } from '../lib/markdown.js';
-import { pathParts } from '../lib/text.js';
+import { pathParts, splitExt } from '../lib/text.js';
 import { useTree } from '../composables/useTree.js';
 import { useDocument } from '../composables/useDocument.js';
 import { useChrome } from '../composables/useChrome.js';
@@ -214,6 +258,8 @@ export default {
       showNew, newPath, newError, newInput, newFullPath, openNew, confirmNew: confirmNewFile,
       showCommitPrompt, commitInput, save, confirmCommit,
       showDelete, deleteMsg, deleting, deleteInput, askDelete, confirmDelete,
+      showRename, renameStem, renameMsg, renamePlan, renameError, renaming, renameInput, renameTarget,
+      askRename, submitRename,
     } = useDocument({
       client,
       onError: (e) => setError(e),
@@ -234,6 +280,11 @@ export default {
       afterDelete: async () => {
         await refreshTree();
         await markSynced();
+      },
+      afterMove: async (path) => {
+        await refreshTree();
+        await markSynced();
+        return revealPath(path);
       },
       markSynced: () => markSynced(),
     });
@@ -466,6 +517,8 @@ export default {
       showNew, newPath, newError, newInput, newFullPath, openNew, confirmNew,
       showCommitPrompt, commitInput, confirmCommit,
       showDelete, deleteMsg, deleting, deleteInput, askDelete, confirmDelete,
+      showRename, renameStem, renameMsg, renamePlan, renameError, renaming, renameInput, renameTarget,
+      askRename, submitRename, splitExt,
       showLog, logEntries, logLoading, logError, openLog,
     };
   },

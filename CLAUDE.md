@@ -180,6 +180,16 @@ closes the note, forgets it and clears `?note=` with `replaceState`. When
 editing, it turns the buffer into a create (`creating`, etag null), because the
 `If-Match` save would 412 against a missing file and the buffer is the user's work.
 
+**Renaming** is `POST /move?from=…&to=…&message=…` with `If-Match`. The dialog
+edits the basename only (`renamedPath` keeps folder and extension). kbmcp
+rewrites every wiki link whose target the move would change, in the same commit,
+so the dialog takes two steps: the first submit is `dry_run=true` and lists
+`links`, the second commits. A `watch` on the name drops the preview, because the
+rewrites depend on the name. Afterwards `afterMove` refreshes the tree and marks
+the commit synced, and the note is reopened at the new path with `replace: true`.
+Replace, because Back to the old path would only find it gone. The reopen also
+picks up rewrites of the note's own links.
+
 A **new file** is not written until its first save: *New* only opens an empty
 buffer at a path (`creating` is true, `etag` null), which keeps a new note to one
 commit. That save goes out with `If-None-Match: *` instead, so losing a race to
@@ -207,7 +217,7 @@ early. A marker div between card and body anchors the toolbar's Content button.
 
 The app is a different origin from the KB, so the **servers it calls** need CORS
 headers — not the server hosting these files. The KB gateway must expose `ETag`
-(the If-Match save flow depends on it), allow the methods `GET, PUT, DELETE` and the headers `Authorization, Content-Type,
+(the If-Match save flow depends on it), allow the methods `GET, PUT, POST, DELETE` and the headers `Authorization, Content-Type,
 If-Match, If-None-Match`, and let unauthenticated `OPTIONS` preflights bypass
 forward_auth, or preflight gets redirected to login. volume-auth needs CORS on
 `/token`, `/register` and the `.well-known/*` + `jwks.json` fetches (`/authorize`

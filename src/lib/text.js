@@ -39,6 +39,22 @@ export function pathParts(path) {
     : { dir: String(path).slice(0, at), name: String(path).slice(at + 1) };
 }
 
+// Split a filename at its last dot: `notes.md` is `notes` + `.md`. A leading dot
+// starts a name rather than an extension, so `.env` has none.
+export function splitExt(name) {
+  const at = String(name).lastIndexOf('.');
+  return at <= 0
+    ? { stem: String(name), ext: '' }
+    : { stem: String(name).slice(0, at), ext: String(name).slice(at) };
+}
+
+// The path a rename to `stem` produces: same folder, same extension.
+export function renamedPath(path, stem) {
+  const { dir, name } = pathParts(path);
+  const next = stem + splitExt(name).ext;
+  return dir ? `${dir}/${next}` : next;
+}
+
 // The address of a [[wiki link]] is everything before an |alias, #heading or
 // ^block, matching what the server reports as the link's target.
 export function linkAddress(raw) {

@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { matchParts, pathParts, linkAddress, linkDisplay, visibleEntries } from './text.js';
+import {
+  matchParts, pathParts, splitExt, renamedPath, linkAddress, linkDisplay, visibleEntries,
+} from './text.js';
 
 describe('matchParts', () => {
   it('splits a line around the hits', () => {
@@ -31,6 +33,26 @@ describe('pathParts', () => {
   it('splits folder from filename', () => {
     expect(pathParts('tax/2026-q3/x.md')).toEqual({ dir: 'tax/2026-q3', name: 'x.md' });
     expect(pathParts('top.md')).toEqual({ dir: '', name: 'top.md' });
+  });
+});
+
+describe('splitExt', () => {
+  it('splits at the last dot', () => {
+    expect(splitExt('notes.md')).toEqual({ stem: 'notes', ext: '.md' });
+    expect(splitExt('a.tar.gz')).toEqual({ stem: 'a.tar', ext: '.gz' });
+  });
+
+  it('treats no dot, or only a leading one, as no extension', () => {
+    expect(splitExt('README')).toEqual({ stem: 'README', ext: '' });
+    expect(splitExt('.env')).toEqual({ stem: '.env', ext: '' });
+  });
+});
+
+describe('renamedPath', () => {
+  it('keeps the folder and the extension', () => {
+    expect(renamedPath('tax/2026/old.md', 'new')).toEqual('tax/2026/new.md');
+    expect(renamedPath('top.md', 'other')).toEqual('other.md');
+    expect(renamedPath('notes/README', 'INDEX')).toEqual('notes/INDEX');
   });
 });
 
