@@ -21,6 +21,34 @@ family of repos, so the failure it prevents cannot occur without someone
 noticing immediately. Build it when a KB that isn't kbmcp — or an editor that
 isn't this one — actually exists.
 
+## Move notes between folders
+
+Rename changes only the name. Moving a note to another folder is what's missing.
+The server side is mostly there: `POST /move` accepts any destination, rewrites
+the links a move would change, and has a dry run to preview them. The open
+question is the UI, and how much of it is worth building:
+
+- **A "Move…" dialog** next to Rename with a destination folder picker. It is
+  the smallest option and reuses the rename dialog's preview-then-commit flow.
+- **A context menu on tree entries** (rename, move, delete where the file is,
+  not only for the open note). A first proper tree menu, which other actions
+  would then want too.
+- **Drag and drop in the tree.** Natural on desktop, poor on touch, and the
+  editor is used on the phone, so it can't be the only way.
+- **A select-and-move mode in the tree.** Works on touch and suits moving
+  several notes at once.
+
+Things that grow the scope, whichever way is chosen:
+
+- **Several notes at once** would need a batch over REST. `POST /move` takes one
+  file, and `batch_edits` (which can move several in one commit) is tool-only.
+- **Moving a folder** isn't supported by kbmcp at all. `move_file` moves files.
+- **The preview** would have to show rewrites for every moved note, and a
+  failure for one note (uncommitted changes, name taken) blocks the whole commit.
+
+**Why it waits:** it ranges from a small dialog to a tree interaction model, and
+which of those is reasonable needs its own discussion. Deferred on 2026-09-15.
+
 ## Make it a PWA
 
 Wanted for the look (no address bar) and, later, notifications. Explicitly *not*
