@@ -1,8 +1,9 @@
 import { ref, computed, nextTick } from 'vue';
 import { renderNote, splitFrontmatter } from '../lib/markdown.js';
+import { NotFoundError } from '../api.js';
 
 // The open note: its text, which mode you are looking at it in, and every way it
-// changes — opening, editing, saving, creating.
+// changes — opening, editing, saving, creating, deleting.
 //
 // This is the app's centre, which is why it takes so many collaborators. They
 // are passed in rather than imported so the dependencies point one way: the
@@ -13,10 +14,12 @@ export function useDocument({
   onError,
   setBanner,
   pushNoteUrl,
+  clearNoteUrl,
   onOpened,          // a note was opened: reset scroll chrome, close the drawer
   remember,          // persist "the file you were last in", per KB
   forget,
   afterCreate,       // refresh the tree and hand back the real node, if any
+  afterDelete,       // refresh the tree and mark our commit as seen
   markSynced,
 }) {
   const selected = ref(null); // node
@@ -81,7 +84,13 @@ export function useDocument({
       etag.value = tag;
       staleFile.value = false;
     } catch (e) {
-      onError(e);
+      if (e instanceof NotFoundError) {
+        // You already chose to discard the edits, so there is nothing to keep.
+        mode.value = 'view';
+        fileGone();
+      } else {
+        onError(e);
+      }
     }
   }
 
@@ -101,6 +110,10 @@ export function useDocument({
         setBanner({ kind: 'info', text: 'Loaded the newer version from the server.' });
       }
     } catch (e) {
+      if (e instanceof NotFoundError) {
+        fileGone();
+        return;
+      }
       // Network trouble — edit what we have; the If-Match save still guards it.
     }
     editText.value = content.value;
@@ -229,11 +242,77 @@ export function useDocument({
     }
   }
 
+  // --- deleting ---
+  //
+  // A deletion is a commit too, so it asks for a message the way a save does,
+  // pre-filled since "Delete <path>" is nearly always what it says. It carries
+  // If-Match, so a note rewritten since you opened it is refused, not removed.
+  const showDelete = ref(false);
+  const deleteMsg = ref('');
+  const deleting = ref(false);
+  const deleteInput = ref(null);
+
+  async function askDelete() {
+    if (!selected.value || creating.value) return;
+    deleteMsg.value = `Delete ${selected.value.path}`;
+    showDelete.value = true;
+    await nextTick();
+    if (deleteInput.value) deleteInput.value.focus();
+  }
+
+  async function confirmDelete() {
+    if (!deleteMsg.value.trim()) return;
+    const path = selected.value.path;
+    deleting.value = true;
+    setBanner(null);
+    try {
+      await client.value.remove(path, deleteMsg.value.trim(), { ifMatch: etag.value || undefined });
+      showDelete.value = false;
+      dropNote();
+      setBanner({ kind: 'info', text: `Deleted ${path}.` });
+      await afterDelete();
+    } catch (e) {
+      showDelete.value = false;
+      if (e instanceof NotFoundError) fileGone();
+      else onError(e);
+    } finally {
+      deleting.value = false;
+    }
+  }
+
+  // The open note was deleted by someone else — noticed by a sync, or by a read
+  // that came back 404. Viewing, there is nothing left to show. Editing, the
+  // buffer is your work, so it is kept and becomes a new file: saving creates
+  // the note again (with If-None-Match, as any create), Cancel lets it go.
+  function fileGone() {
+    if (!selected.value) return;
+    const path = selected.value.path;
+    if (mode.value === 'edit') {
+      creating.value = true;
+      etag.value = null;
+      staleFile.value = false;
+      setBanner({ kind: 'err', text: `${path} doesn't exist anymore — saving will create it again.` });
+      return;
+    }
+    dropNote();
+    setBanner({ kind: 'err', text: `${path} doesn't exist anymore.` });
+  }
+
+  // Nothing open, and nothing remembered that points at a note that isn't there.
+  function dropNote() {
+    close();
+    mode.value = 'view';
+    forget();
+    clearNoteUrl();
+  }
+
   // Leaving a knowledge base: nothing about the previous note should survive
   // into the next one.
   function close() {
     selected.value = null;
     content.value = '';
+    editText.value = '';
+    etag.value = null;
     creating.value = false;
     staleFile.value = false;
   }
@@ -241,8 +320,9 @@ export function useDocument({
   return {
     selected, content, etag, mode, editText, commitMsg, saving, creating, staleFile, busy,
     rendered, hasFrontmatter,
-    openFile, reloadFile, startEdit, cancelEdit, close,
+    openFile, reloadFile, startEdit, cancelEdit, close, fileGone,
     showNew, newPath, newError, newInput, newFullPath, openNew, confirmNew,
     showCommitPrompt, commitInput, save, confirmCommit,
+    showDelete, deleteMsg, deleting, deleteInput, askDelete, confirmDelete,
   };
 }

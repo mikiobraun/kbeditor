@@ -3,12 +3,23 @@
 // list()  -> GET  /files/<dir>   (JSON directory listing)
 // read()  -> GET  /files/<path>  (raw content + ETag)
 // write() -> PUT  /files/<path>  (?message=…, optional If-Match; commits)
+// remove() -> DELETE /files/<path> (?message=…, optional If-Match; commits)
 
 // Signals that the server rejected us for auth reasons and a (re)login is needed.
 export class AuthError extends Error {
   constructor(msg = 'authentication required') {
     super(msg);
     this.name = 'AuthError';
+  }
+}
+
+// The file isn't there (any more). Its own type so a caller can tell a note that
+// was deleted elsewhere from a request that failed.
+export class NotFoundError extends Error {
+  constructor(path) {
+    super(`${path} doesn't exist anymore`);
+    this.name = 'NotFoundError';
+    this.path = path;
   }
 }
 
@@ -62,6 +73,7 @@ export function KbClient(kbUrl, tokenProvider) {
     async read(path) {
       const r = await fetch(filesUrl(path), await init());
       if (r.status === 401) throw new AuthError();
+      if (r.status === 404) throw new NotFoundError(path);
       if (!r.ok) throw new Error(`read "${path}": ${r.status}`);
       return { text: await r.text(), etag: r.headers.get('ETag') };
     },
@@ -81,6 +93,24 @@ export function KbClient(kbUrl, tokenProvider) {
       }
       if (!r.ok) throw new Error(`save "${path}": ${r.status}`);
       return { etag: r.headers.get('ETag'), created: r.status === 201 };
+    },
+
+    // Delete a file and commit the removal. With ifMatch the server refuses if
+    // the file changed since it was read, so you can't delete a note someone
+    // has just rewritten. It also refuses a file with uncommitted changes (409),
+    // so every deletion stays recoverable from history.
+    async remove(path, message, opts = {}) {
+      const extra = {};
+      if (opts.ifMatch) extra['If-Match'] = opts.ifMatch;
+      const url = `${filesUrl(path)}?message=${encodeURIComponent(message)}`;
+      const r = await fetch(url, await init(extra, { method: 'DELETE' }));
+      if (r.status === 401) throw new AuthError();
+      if (r.status === 404) throw new NotFoundError(path);
+      if (r.status === 412) {
+        throw new Error('the file changed on the server since you opened it — reload before deleting');
+      }
+      if (!r.ok) throw new Error(`delete "${path}": ${r.status} ${(await r.text()).slice(0, 120)}`);
+      return r.json();
     },
 
     // Content search across the KB: [{path, line, text}] plus a truncated flag.

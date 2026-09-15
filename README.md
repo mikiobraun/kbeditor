@@ -94,7 +94,7 @@ CORS headers — not the server that hosts these files. Two of them:
 
 - **The KB gateway** (in front of kbmcp), for `/files`: allow this app's origin,
   `Expose-Headers: ETag` (needed for the If-Match save flow), the methods
-  `GET, PUT, OPTIONS`, and the headers `Authorization, Content-Type, If-Match,
+  `GET, PUT, DELETE, OPTIONS`, and the headers `Authorization, Content-Type, If-Match,
   If-None-Match`. Crucially, let the **unauthenticated `OPTIONS` preflight bypass
   forward_auth**, or the browser's preflight gets redirected to login and the
   request fails.
@@ -123,6 +123,13 @@ name already has an extension; missing folders are created with it). Nothing is
 written until you save, so a new note costs one commit and cancelling leaves no
 trace. That first save goes out with `If-None-Match: *`, so if someone else took
 the path meanwhile it fails instead of overwriting them.
+
+**Delete** removes the open note via `DELETE /files/<path>?message=…`, after a
+dialog asking for the commit message (pre-filled as `Delete <path>`). It sends
+`If-Match`, so a note someone rewrote since you opened it is refused with a 412
+rather than deleted. kbmcp also refuses a file with uncommitted changes, so every
+deletion can be undone from history. Afterwards the pane is empty and `?note=` is
+dropped from the URL.
 
 ## Search
 
@@ -189,6 +196,10 @@ rejected anyway, and losing your text to a background refresh would be worse tha
 a stale view. Hitting **Edit** takes the server's current version first, so you
 never start typing against a stale copy; it says so in the banner when that
 happens.
+
+If the open file was deleted elsewhere, a banner says it doesn't exist anymore.
+When you're only viewing it, the note is closed. When you're editing, the buffer is
+kept and becomes a new file: saving creates it again, and Cancel discards it.
 
 A change that doesn't move HEAD — something written into the vault without a
 commit — is invisible to this.

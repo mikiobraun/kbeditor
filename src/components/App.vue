@@ -91,6 +91,9 @@
                   <button @click="startEdit" title="Edit" aria-label="Edit">
                     <span class="icon" aria-hidden="true">✏️</span><span class="label">Edit</span>
                   </button>
+                  <button class="ghost" @click="askDelete" title="Delete" aria-label="Delete">
+                    <span class="icon" aria-hidden="true">🗑</span><span class="label">Delete</span>
+                  </button>
                 </template>
                 <template v-else>
                   <input class="msg" v-model="commitMsg" placeholder="commit message (required)" />
@@ -113,6 +116,22 @@
             <div class="actions">
               <button type="submit" :disabled="!commitMsg.trim()">Save</button>
               <button type="button" class="ghost" @click="showCommitPrompt = false">Cancel</button>
+            </div>
+          </form>
+        </modal-dialog>
+
+        <modal-dialog v-if="showDelete" title="Delete file" @close="showDelete = false">
+          <form class="new-file" @submit.prevent="confirmDelete">
+            <input ref="deleteInput" v-model="deleteMsg" placeholder="commit message" />
+            <p class="muted">
+              Deletes <code>{{ selected && selected.path }}</code> and commits the removal;
+              it stays recoverable from history.
+            </p>
+            <div class="actions">
+              <button type="submit" :disabled="deleting || !deleteMsg.trim()">
+                {{ deleting ? 'Deleting…' : 'Delete' }}
+              </button>
+              <button type="button" class="ghost" @click="showDelete = false">Cancel</button>
             </div>
           </form>
         </modal-dialog>
@@ -191,14 +210,16 @@ export default {
     const {
       selected, content, etag, mode, editText, commitMsg, saving, creating, staleFile,
       rendered, hasFrontmatter,
-      openFile, reloadFile, startEdit, cancelEdit, close: closeDocument,
+      openFile, reloadFile, startEdit, cancelEdit, close: closeDocument, fileGone,
       showNew, newPath, newError, newInput, newFullPath, openNew, confirmNew: confirmNewFile,
       showCommitPrompt, commitInput, save, confirmCommit,
+      showDelete, deleteMsg, deleting, deleteInput, askDelete, confirmDelete,
     } = useDocument({
       client,
       onError: (e) => setError(e),
       setBanner: (b) => { banner.value = b; },
       pushNoteUrl: (path, replace) => pushNoteUrl(path, replace),
+      clearNoteUrl: () => clearNoteUrl(),
       onOpened: () => {
         resetChrome(); // a new note starts with the chrome shown
         treeOpen.value = false; // close the drawer after picking a file (mobile)
@@ -209,6 +230,10 @@ export default {
       afterCreate: async (path) => {
         await refreshTree();
         return findNode(path);
+      },
+      afterDelete: async () => {
+        await refreshTree();
+        await markSynced();
       },
       markSynced: () => markSynced(),
     });
@@ -309,7 +334,7 @@ export default {
     }
 
     // `?note=<path>` on the history stack; see composables/useHistory.js.
-    const { noteFromUrl, pushNoteUrl } = useHistory({
+    const { noteFromUrl, pushNoteUrl, clearNoteUrl } = useHistory({
       openPath: (path, opts) => openPath(path, opts),
       currentPath: () => (selected.value ? selected.value.path : ''),
       isReady: () => !!client.value,
@@ -360,6 +385,7 @@ export default {
       client,
       refreshTree,
       doc: { selected, content, etag, mode, creating, staleFile },
+      onGone: () => fileGone(),
     });
 
     // Wired after useSync, because a checkbox commit marks the vault as seen.
@@ -439,6 +465,7 @@ export default {
       connect, openFile, startEdit, cancelEdit, save, disconnect,
       showNew, newPath, newError, newInput, newFullPath, openNew, confirmNew,
       showCommitPrompt, commitInput, confirmCommit,
+      showDelete, deleteMsg, deleting, deleteInput, askDelete, confirmDelete,
       showLog, logEntries, logLoading, logError, openLog,
     };
   },

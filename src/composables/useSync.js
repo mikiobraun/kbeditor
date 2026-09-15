@@ -1,3 +1,5 @@
+import { NotFoundError } from '../api.js';
+
 // Noticing that the vault changed under you.
 //
 // The REST API has no watch or SSE endpoint, but every write to the KB is a git
@@ -13,11 +15,12 @@
 // without a commit) is invisible to this.
 //
 // `refreshTree` re-lists the open folders; `doc` is the open note's state, which
-// this reads to decide whether pulling new content in is safe.
+// this reads to decide whether pulling new content in is safe. `onGone` is told
+// when the open note has been deleted, and decides what that means.
 // `minGap` is the floor between checks, so a burst of clicks in the tree or the
 // note is one request rather than twenty. A parameter rather than a constant
 // because it is a policy, and because a test shouldn't have to sleep through it.
-export function useSync({ client, refreshTree, doc, minGap = 2000 }) {
+export function useSync({ client, refreshTree, doc, onGone, minGap = 2000 }) {
   const MIN_SYNC_GAP = minGap;
   let lastHash = null;
   let lastCheck = 0;
@@ -69,7 +72,9 @@ export function useSync({ client, refreshTree, doc, minGap = 2000 }) {
         }
       }
     } catch (e) {
-      // A failed check isn't worth a banner; the next one retries.
+      // A deleted note is news, not a failure. Anything else isn't worth a
+      // banner; the next check retries.
+      if (e instanceof NotFoundError) onGone();
     } finally {
       syncing = false;
     }

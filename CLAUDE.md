@@ -171,6 +171,15 @@ Only same-origin cookie mode (no token) uses `'include'`.
 A 412 is surfaced as "the file changed on the server" rather than clobbering.
 Every save is a commit on the KB side, so a commit message is required.
 
+**Deleting** is `DELETE /files/<path>?message=…` with `If-Match`, behind a dialog
+pre-filled with `Delete <path>`. kbmcp refuses a file with uncommitted changes
+(409), so a deletion is always recoverable. A `read` or `remove` that gets 404
+throws `NotFoundError`, which is how a note deleted *elsewhere* is told apart
+from a failed request: `useSync` hands it to `fileGone`. When viewing, `fileGone`
+closes the note, forgets it and clears `?note=` with `replaceState`. When
+editing, it turns the buffer into a create (`creating`, etag null), because the
+`If-Match` save would 412 against a missing file and the buffer is the user's work.
+
 A **new file** is not written until its first save: *New* only opens an empty
 buffer at a path (`creating` is true, `etag` null), which keeps a new note to one
 commit. That save goes out with `If-None-Match: *` instead, so losing a race to
@@ -198,7 +207,7 @@ early. A marker div between card and body anchors the toolbar's Content button.
 
 The app is a different origin from the KB, so the **servers it calls** need CORS
 headers — not the server hosting these files. The KB gateway must expose `ETag`
-(the If-Match save flow depends on it), allow `Authorization, Content-Type,
+(the If-Match save flow depends on it), allow the methods `GET, PUT, DELETE` and the headers `Authorization, Content-Type,
 If-Match, If-None-Match`, and let unauthenticated `OPTIONS` preflights bypass
 forward_auth, or preflight gets redirected to login. volume-auth needs CORS on
 `/token`, `/register` and the `.well-known/*` + `jwks.json` fetches (`/authorize`

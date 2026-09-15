@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ref } from 'vue';
 import { useSync } from './useSync.js';
+import { NotFoundError } from '../api.js';
 
 // A document in the shape useSync expects, with sensible defaults.
 function makeDoc(over = {}) {
@@ -98,6 +99,29 @@ describe('useSync', () => {
     await syncNow();
 
     expect(client.value.read).not.toHaveBeenCalled();
+  });
+
+  // A deleted note is something to tell the user, unlike a failed check.
+  it('reports a note deleted on the server, and only that', async () => {
+    const gone = makeClient({
+      hashes: ['abc', 'def'],
+      read: vi.fn(async () => { throw new NotFoundError('note.md'); }),
+    });
+    const onGone = vi.fn();
+    const sync = useSync({ client: gone, refreshTree: vi.fn(), doc: makeDoc(), onGone, minGap: 0 });
+    await sync.markSynced();
+    await sync.syncNow();
+    expect(onGone).toHaveBeenCalledOnce();
+
+    const failing = makeClient({
+      hashes: ['abc', 'def'],
+      read: vi.fn(async () => { throw new Error('read "note.md": 502'); }),
+    });
+    const onGone2 = vi.fn();
+    const sync2 = useSync({ client: failing, refreshTree: vi.fn(), doc: makeDoc(), onGone: onGone2, minGap: 0 });
+    await sync2.markSynced();
+    await sync2.syncNow();
+    expect(onGone2).not.toHaveBeenCalled();
   });
 
   // A burst of clicks in the tree or the note is one request, not twenty.

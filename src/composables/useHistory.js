@@ -22,6 +22,14 @@ export function useHistory({ openPath, currentPath, isReady }) {
     history[how]({ [NOTE_PARAM]: path }, '', url);
   }
 
+  // The open note is gone. Replace, not push: an entry pointing at a deleted
+  // note would only be a 404 to go Back through.
+  function clearNoteUrl() {
+    const url = new URL(location.href);
+    url.searchParams.delete(NOTE_PARAM);
+    history.replaceState({}, '', url);
+  }
+
   // Open the note a history entry names. popstate fires *after* the browser has
   // moved, so a refused "discard edits?" leaves the URL ahead of the app — push
   // the note we're still on back over it rather than let the two lie.
@@ -36,5 +44,5 @@ export function useHistory({ openPath, currentPath, isReady }) {
     openHistoryNote((e.state && e.state[NOTE_PARAM]) || noteFromUrl());
   });
 
-  return { noteFromUrl, pushNoteUrl };
+  return { noteFromUrl, pushNoteUrl, clearNoteUrl };
 }
