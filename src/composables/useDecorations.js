@@ -195,11 +195,35 @@ export function useDecorations({
     });
   }
 
+  // --- external links ---
+  //
+  // A link to another site opens in a new tab, so following it doesn't leave
+  // the editor. External means an http(s) URL on a different origin; mailto:,
+  // anchors and relative links are left as they are. Done here and not in
+  // renderNote, because DOMPurify strips `target` from the sanitized HTML.
+  function bindExternalLinks() {
+    const pane = notePane.value;
+    if (!pane) return;
+    pane.querySelectorAll('a[href]').forEach((a) => {
+      let url;
+      try {
+        url = new URL(a.getAttribute('href'), location.href);
+      } catch (e) {
+        return;
+      }
+      if ((url.protocol === 'http:' || url.protocol === 'https:') && url.origin !== location.origin) {
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+      }
+    });
+  }
+
   // One pass over the pane. Separate from the watcher below so it can be run —
   // and tested — without waiting on Vue's scheduler.
   function decorate(markSynced) {
     applyHighlight(notePane.value);
     bindWikiLinks();
+    bindExternalLinks();
     bindTaskBoxes(markSynced);
   }
 

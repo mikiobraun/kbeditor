@@ -125,6 +125,28 @@ describe('task checkboxes', () => {
   });
 });
 
+describe('external links', () => {
+  it('opens links to other sites in a new tab, and leaves the rest alone', () => {
+    const { pane, d } = setup({
+      note: [
+        '[ext](https://example.com/page)',
+        '[same](' + location.origin + '/x)',
+        '[rel](other.md)',
+        '[anchor](#top)',
+        '[mail](mailto:a@b.c)',
+      ].join('\n\n'),
+    });
+    d.decorate(vi.fn());
+
+    const byText = (t) => [...pane.querySelectorAll('a')].find((a) => a.textContent === t);
+    expect(byText('ext').target).toBe('_blank');
+    expect(byText('ext').rel).toBe('noopener noreferrer');
+    for (const t of ['same', 'rel', 'anchor', 'mail']) {
+      expect(byText(t).target).toBe('');
+    }
+  });
+});
+
 describe('wiki links', () => {
   it('turns [[...]] into a link that opens the resolved note', async () => {
     const { pane, openPath, d } = setup({
