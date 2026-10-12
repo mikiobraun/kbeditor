@@ -1,250 +1,198 @@
 # kb editor
 
-A pure-frontend viewer/editor for a [kbmcp](../kbmcp) knowledge base. No backend
-of its own — it builds to static files. You give it a KB URL, it signs you in
-through that KB's gateway ([volume-auth](../volume-auth)), and talks to the KB's
-REST interface (`/files`).
+A pure-frontend viewer/editor for a [kbmcp](https://github.com/mikiobraun/kbmcp)
+knowledge base: a git-backed folder of markdown notes. It builds to static
+files. You give it a KB URL, it signs you in through the gateway in front of
+that KB, and talks to the KB's REST interface.
 
 ```
-[ file tree ] │ [ rendered markdown / raw / edit ]
+[ content search · New · Log                          ]
+[ filename search ] │ [ path · view / raw / edit …    ]
+[ file tree       ] │ [ rendered markdown             ]
 ```
 
-## Stack
+## Features
 
-- **Vue 3** single-file components, built by **Vite**. Templates compile at build
-  time, so the browser gets the runtime-only Vue and never a template compiler.
-- **marked** for markdown, **DOMPurify** to sanitize it, **js-yaml** for
-  frontmatter.
-- Plain `fetch` against the kbmcp REST API. No store, no router, no UI framework.
-- **vitest** for tests; jsdom only where a test needs a DOM.
+**Viewing**
 
-Layout:
+- Notes render as markdown. YAML frontmatter is shown as a card above the note,
+  with values exactly as written in the file. **Frontmatter** and **Content**
+  jump between the card and the body.
+- **Raw** shows the file verbatim.
+- Clicking the path in the toolbar copies it to the clipboard.
+- Links to other sites open in a new tab.
+- **Log** lists the KB's recent commits.
 
-| path | role |
-|---|---|
-| `src/main.js` | mounts the app |
-| `src/api.js` | kbmcp REST client (`list` / `read` / `write` / `search` / `find` / `links` / `history`) |
-| `src/auth.js` | OAuth 2.1 authorization-code + PKCE against volume-auth |
-| `src/lib/` | pure functions — markdown and frontmatter rendering, task lines, text helpers. No Vue, no DOM, all unit-tested |
-| `src/composables/` | the behaviour: the open document, the tree, search, sync, links and checkboxes, history, mobile chrome |
-| `src/components/` | `App.vue` (layout and wiring) plus the pieces that own state or are pure views |
-| `src/style.css` | styling (light/dark aware) |
-| `vite.config.js` | dev-server host/port and HMR-through-Caddy setup |
+**Editing**
 
-Composables take their collaborators as arguments rather than importing them, so
-dependencies point one way and a test can pass stubs. Markup becomes a component
-only when it owns state (the connect screen, the dialogs) or is a pure view of
-props (the two result lists) — the header, toolbar and tree stay in `App.vue`,
-since extracting them would only move markup while leaving the state behind.
+- Every save is a git commit in the KB, so saving asks for a commit message.
+- **New** creates a note at a path you name. `.md` is added if the name has no
+  extension, and nothing is written until the first save.
+- **Rename** changes the open note's name. Wiki links pointing at it are
+  rewritten in the same commit, and you see the list of rewrites before
+  confirming.
+- **Delete** removes the open note. The deletion is a commit, so it can be
+  undone from history.
+- Task checkboxes (`- [ ]`) can be ticked in the rendered view. Each tick is a
+  commit.
+- A save, rename or delete is refused if the note changed on the server since
+  you opened it.
 
-## Running
+**Search**
+
+- The box in the header searches note contents. Results are grouped by file;
+  clicking a line opens the note with the term marked.
+- The box above the tree searches filenames and replaces the tree with a flat
+  list of matches.
+- Both match the typed text literally, and both run when you submit.
+
+**Links and navigation**
+
+- `[[wiki links]]` are clickable. A link that doesn't resolve is marked, and
+  hovering gives the reason.
+- Each opened note is a browser history entry with its own URL
+  (`?note=<path>`), so Back works and a URL opens straight into a note.
+- A reload returns to the last KB and note.
+
+**Staying in sync**
+
+- Changes made elsewhere are picked up when the tab regains focus and when you
+  click in the tree or the note. There is no polling.
+- While you are editing, your text is left alone and a banner offers a reload.
+- Not detected: files changed in the vault without a commit.
+
+**On a phone**
+
+- The tree becomes a drawer, toolbar buttons become icons, and header and
+  toolbar hide while you scroll down into a note.
+
+## What you need
+
+1. **A kbmcp server** in HTTP mode, serving the vault. See the
+   [kbmcp README](https://github.com/mikiobraun/kbmcp#readme).
+2. **A gateway in front of it** that signs users in with OAuth and forwards
+   their requests to kbmcp. The author's is
+   [volume-auth](https://github.com/mikiobraun/volume-auth) behind Caddy's
+   `forward_auth`; any setup meeting the requirements below works.
+3. **A place to serve the built files** (`dist/`) over HTTPS. Any static host
+   will do. It doesn't need to share an origin with the KB.
+
+### What the gateway has to provide
+
+For sign-in:
+
+- `GET <kb>/.well-known/oauth-protected-resource` (RFC 9728), reachable without
+  a token, naming the authorization server in `authorization_servers`. An
+  optional `resource` is used as the token audience; the default is `<kb>/`.
+- `GET <issuer>/.well-known/oauth-authorization-server` (RFC 8414) with
+  `authorization_endpoint`, `token_endpoint` and `registration_endpoint`.
+- Open dynamic client registration (RFC 7591) for a public client:
+  `token_endpoint_auth_method: none`, grant types `authorization_code` and
+  `refresh_token`, and the app's own URL as redirect URI.
+- Authorization code flow with PKCE (`S256`), for the scopes `read write`.
+- A token response with `access_token` and `expires_in`. Without a
+  `refresh_token` the session ends when the access token expires.
+
+For KB requests:
+
+- Accept `Authorization: Bearer <access token>` and answer `401` when the token
+  is missing or invalid. The editor reacts to a `401` by starting sign-in.
+- Forward to kbmcp with its shared token and the user and scope headers kbmcp
+  expects (see "Behind an auth gateway" in the kbmcp README). Writing needs the
+  `write` scope; without it kbmcp answers `403`.
+- Send the CORS headers described under
+  [Setting up CORS correctly](#setting-up-cors-correctly).
+
+## How auth works
+
+The app is a public OAuth client and holds no secrets. When you connect to a KB
+URL it:
+
+1. Discovers the authorization server from the KB:
+   `GET <kb>/.well-known/oauth-protected-resource` →
+   `GET <issuer>/.well-known/oauth-authorization-server`.
+2. Registers itself as a client the first time, and caches the `client_id` per
+   issuer in `localStorage`.
+3. Runs authorization code + PKCE: it redirects to the authorization endpoint,
+   then exchanges the returned code at the token endpoint for an access token
+   bound to that KB. The authorize request names the KB in both `resource`
+   (RFC 8707) and `audience`, because authorization servers differ in which of
+   the two they read.
+4. Stores the access and refresh tokens per KB URL in `localStorage`, and
+   refreshes the access token shortly before it expires.
+
+All KB requests then carry `Authorization: Bearer <token>`.
+
+> **Note:** the access and refresh tokens are kept in `localStorage`, where a
+> cross-site scripting (XSS) attack on the app could read them.
+
+### The connect screen's "advanced" options
+
+Below the URL field, **advanced** opens two more controls:
+
+- **Bearer token**: a token pasted here is sent as-is and the OAuth flow is
+  skipped. Use it when the URL you connect to accepts a fixed token, for
+  example kbmcp's own shared token behind a plain reverse proxy. kbmcp is
+  read-only in that setup unless the proxy adds the scope header.
+- **Delete client_id cache**: forgets the client registrations from step 2.
+  Use it when the authorization server's database was reset and sign-in fails
+  with `invalid_client`. The next connect registers again.
+
+## Setting up CORS correctly
+
+The app usually runs on a different origin from the KB, so the servers it
+calls must send CORS headers. The server hosting the app's files needs none.
+
+**The KB gateway**, for `/files`, `/move`, `/search`, `/find`, `/links`,
+`/history` and `/.well-known/oauth-protected-resource`:
+
+- allow the app's origin
+- allow the methods `GET, PUT, POST, DELETE, OPTIONS`
+- allow the request headers
+  `Authorization, Content-Type, If-Match, If-None-Match, X-Client-Id`
+- expose the response header `ETag`
+- answer `OPTIONS` preflights without requiring a token. A preflight carries
+  no `Authorization` header, so a gateway that redirects it to login breaks
+  every request.
+
+**The authorization server**, for the token endpoint, the registration
+endpoint and its `.well-known` metadata. The authorize and login pages are
+top-level redirects, not fetches, and need no CORS.
+
+## Development
+
+Vue 3 single-file components built with Vite; marked, DOMPurify and js-yaml for
+rendering; vitest for tests.
 
 ```sh
 npm install
-npm run dev       # Vite on 127.0.0.1:8072
+npm run dev       # Vite on http://127.0.0.1:8072
 npm run build     # static bundle -> dist/
 npm run preview   # serve the built bundle
 npm test          # vitest
 ```
 
-A secure context is required for `crypto.subtle` and OAuth redirects, so reach
-the dev server over `localhost` or through a TLS-terminating proxy. The config is
-set up for the latter: Caddy fronts `https://editor.example.com` → `:8072`, with
-that host in `allowedHosts` and HMR pointed at `wss://…:443`. Change those three
-places if you front it with a different name.
+The app needs a secure context (HTTPS or `localhost`) for sign-in.
 
-For real use, serve `dist/` behind the same gateway/host family as your KB (or
-anywhere that's an allowed origin — see CORS below).
+`vite.config.js` currently names the author's dev host in `allowedHosts` and in
+the `hmr` block. To develop on localhost, remove the `hmr` block; to develop
+behind your own TLS proxy, put your host name in both places.
 
-## How auth works
-
-The app is a **public OAuth client**. When you connect to a KB URL it:
-
-1. Discovers the authorization server from the KB:
-   `GET <kb>/.well-known/oauth-protected-resource` (RFC 9728) →
-   `GET <issuer>/.well-known/oauth-authorization-server` (RFC 8414).
-2. **Self-registers** a client the first time (RFC 7591), caching the
-   `client_id` per issuer in `localStorage`.
-3. Runs **authorization code + PKCE**: redirects to `/authorize`, then exchanges
-   the returned code at `/token` for a bearer JWT bound to that KB. The authorize
-   request sends the KB as **both** `resource` (RFC 8707) and `audience` — Ory
-   Hydra reads the audience from the latter — so keep both.
-4. Stores the access/refresh tokens per KB URL in `localStorage` and refreshes
-   them as needed.
-
-All KB requests then carry `Authorization: Bearer <token>`. There are no secrets
-in the app.
-
-> **Token storage note:** tokens live in `localStorage` for persistence across
-> reloads, which is XSS-exposed. Fine for a personal tool; harden (in-memory +
-> silent refresh) before wider use.
-
-### Advanced (connect screen)
-
-- **Bearer token** — paste one to skip the OAuth flow entirely. Handy for testing
-  against a KB running in bearer-token mode, or a same-origin deployment.
-- **Delete client_id cache** — forgets the per-issuer registrations from step 2.
-  Use it when the authorization server's database has been reset and sign-in
-  fails with `invalid_client`: the next connect re-registers from scratch.
-
-## CORS (the deployment gotcha)
-
-Because this is a separate origin from the KB, the **servers it calls** must send
-CORS headers — not the server that hosts these files. Two of them:
-
-- **The KB gateway** (in front of kbmcp), for `/files` and `/move`: allow this app's origin,
-  `Expose-Headers: ETag` (needed for the If-Match save flow), the methods
-  `GET, PUT, POST, DELETE, OPTIONS`, and the headers `Authorization, Content-Type, If-Match,
-  If-None-Match`. Crucially, let the **unauthenticated `OPTIONS` preflight bypass
-  forward_auth**, or the browser's preflight gets redirected to login and the
-  request fails.
-- **volume-auth**, for the programmatic calls: `POST /token`, `/register`, and
-  the `.well-known/*` + `jwks.json` discovery fetches. (`/authorize` and `/login`
-  are top-level redirects, not fetches, so they need no CORS.)
-
-## Editing
-
-Edit mode saves via `PUT /files/<path>?message=…` with `If-Match: <etag>` from
-the read, so a concurrent change on the server surfaces as a 412 ("file changed
-… reload before saving") instead of silently clobbering. Every save is a commit
-on the KB side, which is why a commit message is required.
-
-Task-list checkboxes are live in the rendered view: ticking one rewrites that
-line's marker in the source, saves it with `If-Match`, and commits as
-`Check "first 30 characters…"`. One commit per tick, as on GitHub. The label is
-the item's text with formatting stripped and cut at 30 characters — one rule
-regardless of how the line is punctuated, since the notes use em dashes, colons
-and full stops interchangeably. If the source line doesn't match what the box on
-screen was showing, the tick is refused rather than applied to a line it can't
-vouch for.
-
-**New** opens an empty buffer at a path you name (`.md` is appended unless the
-name already has an extension; missing folders are created with it). Nothing is
-written until you save, so a new note costs one commit and cancelling leaves no
-trace. That first save goes out with `If-None-Match: *`, so if someone else took
-the path meanwhile it fails instead of overwriting them.
-
-**Delete** removes the open note via `DELETE /files/<path>?message=…`, after a
-dialog asking for the commit message (pre-filled as `Delete <path>`). It sends
-`If-Match`, so a note someone rewrote since you opened it is refused with a 412
-rather than deleted. kbmcp also refuses a file with uncommitted changes, so every
-deletion can be undone from history. Afterwards the pane is empty and `?note=` is
-dropped from the URL.
-
-**Rename** changes the open note's name, never its folder: the dialog edits the
-name without its extension. Renaming can change what wiki links elsewhere point
-at, so kbmcp rewrites every link that would otherwise lose its target, in the
-same commit (`POST /move`). The first **Preview** is a dry run that lists those
-rewrites. **Rename** then commits with a message pre-filled as
-`Rename <old> to <new>`. Editing the name goes back to the preview step. The
-move carries `If-Match`, and kbmcp refuses it when the name is taken or when the
-note, or a note whose link needs rewriting, has uncommitted changes.
-
-## Search
-
-The header box searches note contents across the whole KB via
-`GET /search?substring=…`, which is kbmcp's ripgrep-backed search behind a REST
-route. Substring only: the parameter is named for the mode, so a literal like
-`[x]` is never read as a regex.
-
-One search per press of **Search** (or Enter) — not per keystroke, since each one
-spawns a ripgrep over the vault. Results fill the pane grouped by file, with each
-matching line and its line number; clicking one opens that file, expanding the
-tree down to it, with the term marked and the first hit scrolled into view. The
-term stays in the box, so pressing Search again brings the results back.
-
-Marking follows ripgrep's smart case — a pattern containing an uppercase letter
-matches case-sensitively — so what's highlighted is exactly what the server
-counted as a match.
-
-The box at the top of the tree searches **filenames** instead, via
-`GET /find?substring=…`. The term is escaped server-side before it reaches `fd`,
-so `meeting.md` matches that name literally rather than as a pattern whose `.`
-means any character. Results replace the tree with a flat list — filename over
-muted folder — and clicking one opens it while leaving the list up, since
-finding files usually means opening several. **Clear** restores the tree, already
-expanded to whatever you opened.
-
-That list is deliberately flat rather than a filtered tree: a folder shown
-holding only its matching children reads as a folder that contains only those
-children.
-
-Not yet: live search as you type, cycling between hits, restricting a search to
-a folder, regex mode.
-
-## Wiki links and history
-
-`[[wiki links]]` in a rendered note are clickable. Where each one points is
-decided by kbmcp (`GET /links?path=…`), not by the editor — a name resolves to a
-sibling first and then vault-wide, a target with a slash is a vault path, and an
-ambiguous name resolves to nothing. A link that doesn't resolve stays visible in
-dotted red and gives the reason on hover, listing the candidates when a name
-matched several notes.
-
-Opening a note pushes `?note=<path>` onto the browser's history, so Back walks
-the notes you followed and a URL can be shared or reloaded straight into a note.
-Only notes are history entries — search results aren't, which keeps queries out
-of the URL and a ripgrep off the Back button.
-
-## Staying in sync
-
-The REST API has no watch endpoint, but every write to the KB is a commit, so the
-head commit is a single cheap change token: `GET /history?max=1` answers "did
-anything change?" for the whole vault, in one request whose cost doesn't grow
-with the repo.
-
-There is no polling. The check runs when the tab regains focus and when you click
-in the tree or the document — the moments a stale view starts to matter — with a
-2-second floor so a burst of clicks is one request. An idle tab makes no requests
-at all.
-
-When the token moves, the tree re-lists its open folders (keeping expansion and
-selection) and the open file is re-read. While you're editing, the buffer is left
-alone and a banner offers to reload instead — the `If-Match` save would be
-rejected anyway, and losing your text to a background refresh would be worse than
-a stale view. Hitting **Edit** takes the server's current version first, so you
-never start typing against a stale copy; it says so in the banner when that
-happens.
-
-If the open file was deleted elsewhere, a banner says it doesn't exist anymore.
-When you're only viewing it, the note is closed. When you're editing, the buffer is
-kept and becomes a new file: saving creates it again, and Cancel discards it.
-
-A change that doesn't move HEAD — something written into the vault without a
-commit — is invisible to this.
-
-## Coming back
-
-The last KB and the file you had open are remembered per KB, so a reload drops
-you back where you were, with the tree expanded down to that file. Reconnecting
-never redirects to the login page on its own: if the stored token has expired you
-get the connect card and a note, not a surprise navigation. **Disconnect** drops
-the token, and with it the automatic reconnect.
-
-## Viewing
-
-Notes render as sanitized markdown, with a leading YAML frontmatter block pulled
-out and shown as a metadata card (without the split, `marked` turns the closing
-`---` into a setext heading). The card handles the full structure the vault
-actually uses — the mail notes carry nested maps and lists of maps — so nested
-keys indent and each element of a list keeps its fields grouped. Scalar lists sit
-inline: `tags: inbox, work`.
-
-Values are shown exactly as written. Parsing uses YAML's failsafe schema, which
-knows only maps, sequences and strings, so `date: 2026-09-06` stays that text
-instead of becoming a JavaScript `Date` that prints as
-`Sun Sep 06 2026 00:00:00 GMT+0200`. A block that won't parse is shown verbatim
-rather than dropped.
-
-Since frontmatter has no meaningful ordering, a long block isn't truncated —
-**Frontmatter** and **Content** in the toolbar jump between the card and the note
-body instead. **Raw** shows the file verbatim, and **Log** in the header lists
-the KB's recent commits (`GET /history`).
+[CLAUDE.md](CLAUDE.md) describes the code's structure and the reasoning behind
+it.
 
 ## Status / not yet done
 
-- Viewer, single-file editing, create, rename, delete. No moving a note to
-  another folder from the UI yet (kbmcp's `POST /move` already supports it).
-- No wiki-link navigation (kbmcp exposes `backlinks`/`outgoing_links` over MCP,
-  not REST).
-- Tree loads lazily per folder; no search box yet.
+Not yet:
+
+- Moving a note to another folder.
+- Backlinks.
+- Installing as a PWA.
+- Search as you type, cycling between hits, restricting a search to a folder,
+  regex search.
+
+[BACKLOG.md](BACKLOG.md) has the reasoning behind the deferred items.
+
+## License
+
+BSD 3-Clause — see [LICENSE](LICENSE).

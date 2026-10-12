@@ -107,7 +107,7 @@ export async function beginLogin(kbUrl) {
     code_challenge: challenge,
     code_challenge_method: 'S256',
     resource: meta.resource, // bind the token audience to this KB (RFC 8707)
-    audience: meta.resource, // Ory Hydra reads the audience from this param, not `resource`
+    audience: meta.resource, // volume-auth (Ory fosite) reads the audience from this param, not `resource`
   });
   location.assign(`${meta.authorizationEndpoint}?${p}`);
 }

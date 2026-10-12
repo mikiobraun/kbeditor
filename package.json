@@ -1,6 +1,7 @@
 {
   "name": "kb-editor",
   "private": true,
+  "license": "BSD-3-Clause",
   "version": "0.1.0",
   "type": "module",
   "scripts": {

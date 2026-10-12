@@ -49,6 +49,21 @@ Things that grow the scope, whichever way is chosen:
 **Why it waits:** it ranges from a small dialog to a tree interaction model, and
 which of those is reasonable needs its own discussion. Deferred on 2026-09-15.
 
+## Take the dev host out of `vite.config.js`
+
+`allowedHosts` and the `hmr` block name `editor.example.com`, the author's
+Caddy-fronted dev host. Anyone else running `npm run dev` on localhost gets a
+working page, but its hot reload tries to open a websocket to that host.
+
+The fix is to read the public host from an environment variable (a
+`.env.local`, which Vite loads; it needs adding to `.gitignore`) and, when it is unset, leave
+`allowedHosts` and `hmr` at Vite's defaults.
+
+**Why it waits:** found on 2026-10-12 while preparing the README for
+publishing, in a session that was about the README. It has to land before the
+repo goes public; until then the README's Development section says to edit the
+two places by hand.
+
 ## Make it a PWA
 
 Wanted for the look (no address bar) and, later, notifications. Explicitly *not*

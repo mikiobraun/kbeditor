@@ -14,6 +14,7 @@ repos matter when debugging auth or API behaviour.
 ```sh
 npm run dev        # Vite dev server on 127.0.0.1:8072 (strictPort)
 npm run build      # -> dist/
+npm run preview    # serve the built bundle
 npm test           # vitest, once
 npm run test:watch
 ```
@@ -50,7 +51,9 @@ src/components/      App.vue plus the pieces that own state or are pure views
 **Where to put a change.** The organising rule is what a piece *owns*:
 
 - `lib/` — anything that is a function of its arguments. If it can be written
-  without Vue, it belongs here and gets a unit test.
+  without Vue, it belongs here and gets a unit test. The one exception is
+  `tree.js`: `makeNode` returns a reactive node, so it imports Vue and has no
+  test.
 - `composables/` — state plus the operations on it. Each takes its collaborators
   as arguments rather than importing them, so the dependencies point one way and
   a test can pass stubs.
@@ -103,7 +106,9 @@ source list tasks in the same order. Two things keep that mapping honest:
 fence, so counting one would shift every later index), and the selector takes
 only marked's own `li > input:first-child`, so inline HTML in a note can't. Before
 writing, the source line's state must match what the box was showing; on mismatch
-or a failed write the box is reverted and nothing is committed.
+or a failed write the box is reverted and nothing is committed. Each tick is one
+commit, with the message `Check "<label>"` or `Uncheck "<label>"`; `taskLabel`
+is the item's text with formatting stripped, cut at 30 characters.
 
 **Wiki links** (`useDecorations.js`). `GET /links?path=…` returns each `[[…]]` with what it resolves
 to; the grammar lives in kbmcp, so the editor never guesses a target. Rendering
@@ -114,9 +119,42 @@ belong to, and converting `[[…]]` consumes the markers — so elements carry
 looking for text that is no longer there. An empty `linkMap` means "not answered
 yet", not "all broken", since a note with links always returns one entry each.
 
+**External links** (`useDecorations.js`). `bindExternalLinks` gives http(s)
+links to another origin `target="_blank"` and `rel="noopener noreferrer"`.
+It runs on the rendered pane and not in `renderNote`, because DOMPurify strips
+`target` from sanitized HTML. `mailto:`, anchors and relative links are left
+alone.
+
+**Toolbar** (`App.vue`, `style.css`). Two flex items: the `.path` span and one
+`.actions` div holding the buttons. `.toolbar` wraps, and wrapping is decided on
+unshrunk widths, so both share a line when the whole path fits and otherwise the
+buttons drop to a second row as a block. The buttons must stay grouped: as
+separate flex items they wrap one at a time. Within `.path` the folder span
+shrinks about 100x more readily than the name span, so the filename is the last
+thing to be cut. Clicking `.path` runs `copyPath`, which writes `selected.path`
+to the clipboard. `copiedPath` stores the copied path, not a flag, so the
+"· copied" mark disappears when another note is opened.
+
+**Phone layout** (`style.css`, `useChrome.js`). One breakpoint,
+`@media (max-width: 720px)`. Below it the tree is a drawer (`treeOpen`, closed
+again when a file is picked), toolbar buttons show `.icon` glyphs in place of
+`.label` words (the word stays in `aria-label`), and the header's search box
+takes a row of its own. `useChrome` hides header and toolbar when the note is
+scrolled down and shows them on scroll up. Only the panes scroll, so its
+listener sits on the pane container in the capture phase. While editing, only
+the header hides, since Save and the commit message are in the toolbar. The
+hiding animates `max-height`; that cap (10rem) has to stay above the toolbar's
+real height, which is up to three rows.
+
+**Log** (`App.vue`). The header's Log button opens a modal listing the last 50
+commits from `GET /history?max=50`. It is fetched on each open and has no
+composable.
+
 **History** (`useHistory.js`). No router: `openFile` pushes `?note=<path>`, `popstate` reopens with
 `{history: false}`, and the on-load restore uses `replace: true` so landing on a
-note isn't a step you can go Back through. A refused "discard edits?" during
+note isn't a step you can go Back through. Only notes are history entries:
+search results are not, so queries stay out of the URL and Back never triggers
+a ripgrep. A refused "discard edits?" during
 `popstate` re-pushes the current note, because the browser has already moved by
 then. Query strings are safe for OAuth — `redirectUri()` is origin + pathname.
 
@@ -156,8 +194,9 @@ restore is not a failed connect.
    screen's *advanced → Delete client_id cache* button (`clearClientCache`) is the
    fix.
 3. Code + PKCE. The authorize request sends **both** `resource` and `audience`
-   with the same value: Ory Hydra reads the audience from `audience`, the spec
-   (RFC 8707) says `resource`. Keep both.
+   with the same value: volume-auth is built on Ory fosite, which reads the
+   audience from `audience`, while the spec (RFC 8707) says `resource`. Keep
+   both.
 4. Tokens stored per-KB in `localStorage` under `va_token_<kbUrl>`, refreshed
    when within 30s of expiry; a failed refresh logs out and returns null so the
    caller starts a fresh login.
@@ -169,7 +208,9 @@ Only same-origin cookie mode (no token) uses `'include'`.
 
 **Saving** (`useDocument.js`) is `PUT /files/<path>?message=…` with `If-Match: <etag>` from the read.
 A 412 is surfaced as "the file changed on the server" rather than clobbering.
-Every save is a commit on the KB side, so a commit message is required.
+Every save is a commit on the KB side, so a commit message is required. Save
+with an empty message opens a dialog (`showCommitPrompt`) asking for one, and
+`confirmCommit` then saves.
 
 **Deleting** is `DELETE /files/<path>?message=…` with `If-Match`, behind a dialog
 pre-filled with `Delete <path>`. kbmcp refuses a file with uncommitted changes
@@ -192,7 +233,9 @@ picks up rewrites of the note's own links.
 
 A **new file** is not written until its first save: *New* only opens an empty
 buffer at a path (`creating` is true, `etag` null), which keeps a new note to one
-commit. That save goes out with `If-None-Match: *` instead, so losing a race to
+commit. The name gets `.md` appended unless its last segment already contains
+a dot (`newFullPath` in `useDocument.js`), and kbmcp creates missing folders
+with the file. That save goes out with `If-None-Match: *` instead, so losing a race to
 the same path fails rather than overwriting — hence the two different 412
 messages in `api.js`.
 
@@ -218,7 +261,7 @@ early. A marker div between card and body anchors the toolbar's Content button.
 The app is a different origin from the KB, so the **servers it calls** need CORS
 headers — not the server hosting these files. The KB gateway must expose `ETag`
 (the If-Match save flow depends on it), allow the methods `GET, PUT, POST, DELETE` and the headers `Authorization, Content-Type,
-If-Match, If-None-Match`, and let unauthenticated `OPTIONS` preflights bypass
+If-Match, If-None-Match, X-Client-Id`, and let unauthenticated `OPTIONS` preflights bypass
 forward_auth, or preflight gets redirected to login. volume-auth needs CORS on
 `/token`, `/register` and the `.well-known/*` + `jwks.json` fetches (`/authorize`
 and `/login` are top-level redirects, not fetches).
