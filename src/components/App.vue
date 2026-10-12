@@ -65,13 +65,13 @@
             <div v-else-if="!selected" class="empty muted">Select a file from the tree, or create one with “New”.</div>
             <template v-else>
               <div class="toolbar">
-                <span class="path"><span
+                <span class="path" title="Copy path" @click="copyPath"><span
                   v-if="pathParts(selected.path).dir"
                   class="path-dir">{{ pathParts(selected.path).dir }}/</span><span
                   class="path-name">{{ pathParts(selected.path).name }}</span><span
-                  v-if="creating" class="muted">&nbsp;· new</span></span>
-                <span class="spacer"></span>
-                <template v-if="mode !== 'edit'">
+                  v-if="creating" class="muted">&nbsp;· new</span><span
+                  v-if="copiedPath === selected.path" class="muted">&nbsp;· copied</span></span>
+                <div v-if="mode !== 'edit'" class="actions">
                   <template v-if="mode === 'view' && hasFrontmatter">
                     <button class="ghost" @click="scrollToFrontmatter" title="Frontmatter" aria-label="Jump to frontmatter">
                       <span class="icon" aria-hidden="true">↑</span><span class="label">Frontmatter</span>
@@ -97,12 +97,12 @@
                   <button class="ghost" @click="askDelete" title="Delete" aria-label="Delete">
                     <span class="icon" aria-hidden="true">🗑</span><span class="label">Delete</span>
                   </button>
-                </template>
-                <template v-else>
+                </div>
+                <div v-else class="actions edit">
                   <input class="msg" v-model="commitMsg" placeholder="commit message (required)" />
                   <button @click="save" :disabled="saving">{{ saving ? 'Saving…' : (creating ? 'Create' : 'Save') }}</button>
                   <button class="ghost" @click="cancelEdit">Cancel</button>
-                </template>
+                </div>
               </div>
               <div v-if="mode === 'view'" class="markdown" ref="notePane" v-html="rendered"></div>
               <pre v-else-if="mode === 'raw'" class="raw">{{ content }}</pre>
@@ -502,10 +502,27 @@ export default {
       };
     }
 
+    // Click on the toolbar path copies it. copiedPath holds the path rather
+    // than a flag, so the "copied" mark can't carry over to the next note.
+    const copiedPath = ref('');
+    let copiedTimer = null;
+    async function copyPath() {
+      const path = selected.value.path;
+      try {
+        await navigator.clipboard.writeText(path);
+      } catch (e) {
+        setError(e);
+        return;
+      }
+      copiedPath.value = path;
+      clearTimeout(copiedTimer);
+      copiedTimer = setTimeout(() => { copiedPath.value = ''; }, 1500);
+    }
+
     // What the template binds to. The logic itself lives in composables/ —
     // this component is the wiring between them and the markup.
     return {
-      view, kbUrl, busy, banner, treeOpen, forgetClient,
+      view, kbUrl, busy, banner, treeOpen, forgetClient, copyPath, copiedPath,
       roots, selected, content, etag, mode, editText, commitMsg, saving, rendered,
       hasFrontmatter, notePane, scrollToFrontmatter, scrollToContent,
       searchTerm, searchResults, searching,

@@ -180,14 +180,28 @@ header .menu { display: none; font-size: 1.1rem; padding: .35rem .6rem; }
 .toolbar {
   display: flex; align-items: center; gap: .5rem; padding: .5rem .8rem;
   border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
 }
+/* Two items, path and buttons. Wrapping is decided on their unshrunk widths,
+   so they share a line exactly when the whole path fits next to the buttons;
+   otherwise the buttons move down as one block and the path gets a row to
+   itself. The buttons are grouped for that reason: as separate items they
+   would wrap one at a time. */
+.toolbar .actions {
+  display: flex; align-items: center; gap: .5rem; margin-left: auto;
+  flex-wrap: wrap; justify-content: flex-end;
+}
+/* Editing: the group grows, so the commit message takes the spare width. */
+.toolbar .actions.edit { flex: 1 1 auto; }
 /* The folder gives way, the filename never does: truncating the end of
    "tax/2026-q3/anthropic-2026-09-04.md" would throw away the part that says
    which note you are looking at. Two spans, and only the first can shrink. */
 .toolbar .path {
   display: flex; min-width: 0; overflow: hidden;
   font-family: var(--mono); font-size: .82rem; color: var(--muted);
+  cursor: pointer;
 }
+.toolbar .path:hover { color: var(--text); }
 /* Both can shrink, but the folder gives way ~100x more readily, so the
    filename only starts losing characters once the folder has collapsed. Both
    need min-width:0 and their own ellipsis, or a long name simply overflows and
@@ -301,12 +315,6 @@ header .menu { display: none; font-size: 1.1rem; padding: .35rem .6rem; }
 
   .pane { width: 100%; }
   .markdown, .raw, .editor { padding: 1rem 1.1rem; }
-  /* One line: the path shrinks (folder first) so the buttons never wrap onto a
-     row of their own. Edit mode still wraps — the commit message field needs
-     real width, and Save must not be squeezed to nothing. */
-  .toolbar { flex-wrap: nowrap; }
-  .browser.editing .toolbar { flex-wrap: wrap; }
-
   /* Five words don't fit next to a path on a phone, so the view buttons show
      their glyph instead. The word stays in aria-label, so a screen reader
      still hears "Rendered" rather than an eye. The edit-mode toolbar keeps its
