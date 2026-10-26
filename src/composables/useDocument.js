@@ -1,7 +1,7 @@
 import { ref, computed, nextTick, watch } from 'vue';
 import { renderNote, splitFrontmatter } from '../lib/markdown.js';
 import { pathParts, splitExt, renamedPath } from '../lib/text.js';
-import { NotFoundError } from '../api.js';
+import { NotFoundError, ConflictError } from '../api.js';
 
 // The open note: its text, which mode you are looking at it in, and every way it
 // changes — opening, editing, saving, creating, renaming, deleting.
@@ -23,6 +23,7 @@ export function useDocument({
   afterDelete,       // refresh the tree and mark our commit as seen
   afterMove,         // the same, then hand back the tree node at the new path, if any
   markSynced,
+  drafts,            // unsaved edits per note: load(path), store(path, draft), drop(path)
 }) {
   const selected = ref(null); // node
   const content = ref('');
@@ -34,6 +35,8 @@ export function useDocument({
   const creating = ref(false); // the open buffer is a file that doesn't exist yet
   const staleFile = ref(false); // it changed on the server while we were editing
   const busy = ref(false);
+  const editorEl = ref(null); // the textarea
+  const cursor = ref(null); // { start, end, scrollTop } of the textarea
 
   const rendered = computed(() => renderNote(content.value));
 
@@ -45,26 +48,94 @@ export function useDocument({
     return !!(raw && raw.trim());
   });
 
+  // --- drafts ---
+  //
+  // While editing, the buffer is mirrored into a draft on every change, so
+  // leaving a note — another note, a reload, a closed tab, a sign-in redirect —
+  // loses nothing, and needs no "discard?" prompt. A buffer that matches the
+  // server is not a draft. Only Cancel, discarding on a conflict, and a
+  // successful save drop one.
+  function persistDraft() {
+    if (mode.value !== 'edit' || !selected.value) return;
+    const path = selected.value.path;
+    if (!creating.value && editText.value === content.value) {
+      drafts.drop(path);
+      return;
+    }
+    drafts.store(path, {
+      text: editText.value,
+      baseEtag: etag.value,
+      commitMsg: commitMsg.value,
+      cursor: cursor.value,
+      savedAt: Date.now(),
+    });
+  }
+
+  watch([editText, commitMsg, cursor, etag, creating], persistDraft);
+
+  // Bound to the textarea's input, keyup, mouseup and scroll.
+  function trackCursor(e) {
+    const t = e.target;
+    cursor.value = { start: t.selectionStart, end: t.selectionEnd, scrollTop: t.scrollTop };
+  }
+
+  async function restoreCursor(c) {
+    await nextTick();
+    const t = editorEl.value;
+    if (!t) return;
+    t.focus();
+    if (c) {
+      t.setSelectionRange(c.start, c.end);
+      t.scrollTop = c.scrollTop;
+    }
+  }
+
   // openFile is the single door onto a note, so history is pushed here rather
   // than at each call site. `history: false` is for openings that are *not*
   // navigations: replaying a popstate, and the restore on load.
+  //
+  // A note with a draft opens in edit mode, where you left it. The draft's
+  // baseEtag stays the etag, so If-Match still guards the save, and whether the
+  // server moved on is decided the same way useSync decides it. A draft whose
+  // file is gone opens as a create, the way fileGone turns an open buffer into
+  // one.
   async function openFile(node, opts = {}) {
-    if (selected.value && mode.value === 'edit' && editText.value !== content.value) {
-      if (!confirm('Discard unsaved edits?')) return false;
-    }
     busy.value = true;
     setBanner(null);
     try {
-      const { text, etag: tag } = await client.value.read(node.path);
-      if (opts.history !== false) pushNoteUrl(node.path, opts.replace === true);
+      const draft = drafts.load(node.path);
+      let text = '';
+      let tag = null;
+      let exists = true;
+      try {
+        ({ text, etag: tag } = await client.value.read(node.path));
+      } catch (e) {
+        if (!(draft && e instanceof NotFoundError)) throw e;
+        exists = false;
+      }
+      if (opts.history !== false && exists) pushNoteUrl(node.path, opts.replace === true);
       selected.value = node;
       content.value = text;
-      etag.value = tag;
-      mode.value = 'view';
-      creating.value = false;
-      staleFile.value = false;
+      if (draft) {
+        etag.value = exists ? draft.baseEtag : null;
+        creating.value = !exists;
+        staleFile.value = exists && tag !== draft.baseEtag;
+        editText.value = draft.text;
+        commitMsg.value = draft.commitMsg || '';
+        cursor.value = draft.cursor || null;
+        mode.value = 'edit';
+        // The watch only sees a change; this note may be stale like the last.
+        showConflict.value = staleFile.value;
+      } else {
+        etag.value = tag;
+        creating.value = false;
+        staleFile.value = false;
+        cursor.value = null;
+        mode.value = 'view';
+      }
       onOpened(node);
       remember(node.path);
+      if (draft) restoreCursor(draft.cursor);
       return true;
     } catch (e) {
       onError(e);
@@ -74,22 +145,54 @@ export function useDocument({
     }
   }
 
-  // Discard what we have and take the server's version of the open file.
-  async function reloadFile() {
-    if (!selected.value || creating.value) return;
-    if (mode.value === 'edit' && editText.value !== content.value &&
-        !confirm('Discard your edits and load the server version?')) return;
+  // --- conflicts ---
+  //
+  // The server has a version you haven't seen: noticed by useSync, on reopening
+  // a draft, or by a save that came back 412. There is no merge, so it is one of
+  // two: drop your edits for the server's version, or keep yours and let the
+  // next save replace it. The dialog opens whenever that becomes the case; the
+  // banner stays until it's resolved, in case the dialog was closed.
+  const showConflict = ref(false);
+  watch(staleFile, (stale) => { showConflict.value = stale; });
+
+  async function discardEdits() {
+    showConflict.value = false;
+    const path = selected.value.path;
+    try {
+      const { text, etag: tag } = await client.value.read(path);
+      drafts.drop(path);
+      content.value = text;
+      etag.value = tag;
+      staleFile.value = false;
+      mode.value = 'view';
+    } catch (e) {
+      if (e instanceof NotFoundError) {
+        // You chose to discard the edits, so there is nothing to keep.
+        drafts.drop(path);
+        mode.value = 'view';
+        fileGone();
+      } else {
+        onError(e);
+      }
+    }
+  }
+
+  // Adopt the server's current version as the base, so the next save
+  // overwrites exactly that version — and is still refused if it changes again.
+  async function overwriteServer() {
+    showConflict.value = false;
     try {
       const { text, etag: tag } = await client.value.read(selected.value.path);
       content.value = text;
-      editText.value = text;
       etag.value = tag;
+      creating.value = false;
       staleFile.value = false;
     } catch (e) {
       if (e instanceof NotFoundError) {
-        // You already chose to discard the edits, so there is nothing to keep.
-        mode.value = 'view';
-        fileGone();
+        content.value = '';
+        etag.value = null;
+        creating.value = true;
+        staleFile.value = false;
       } else {
         onError(e);
       }
@@ -119,10 +222,15 @@ export function useDocument({
       // Network trouble — edit what we have; the If-Match save still guards it.
     }
     editText.value = content.value;
+    cursor.value = null;
     mode.value = 'edit';
   }
 
+  // The one way to throw edits away on purpose, so it asks first.
   function cancelEdit() {
+    if ((creating.value || editText.value !== content.value) &&
+        !confirm('Discard your edits?')) return;
+    drafts.drop(selected.value.path);
     // A new file only exists in the buffer, so cancelling drops it entirely.
     if (creating.value) {
       creating.value = false;
@@ -179,8 +287,6 @@ export function useDocument({
       newError.value = 'A file already exists at that path.';
       return;
     }
-    if (mode.value === 'edit' && editText.value !== content.value &&
-        !confirm('Discard unsaved edits?')) return;
 
     showNew.value = false;
     selected.value = { name: path.split('/').pop(), path, is_dir: false };
@@ -190,8 +296,13 @@ export function useDocument({
     creating.value = true;
     staleFile.value = false;
     commitMsg.value = `Add ${path}`;
+    cursor.value = null;
     mode.value = 'edit';
     onOpened(selected.value);
+    // The tree can't lead back to a file that doesn't exist yet, so a reload
+    // finds its draft through "the file you were last in".
+    remember(path);
+    restoreCursor(null);
   }
 
   // --- saving ---
@@ -224,6 +335,7 @@ export function useDocument({
     try {
       const res = await client.value.write(selected.value.path, editText.value, commitMsg.value.trim(),
         isNew ? { ifNoneMatch: '*' } : { ifMatch: etag.value || undefined });
+      drafts.drop(selected.value.path);
       content.value = editText.value;
       etag.value = res.etag;
       mode.value = 'view';
@@ -238,7 +350,8 @@ export function useDocument({
       }
       await markSynced();
     } catch (e) {
-      onError(e);
+      if (e instanceof ConflictError) staleFile.value = true;
+      else onError(e);
     } finally {
       saving.value = false;
     }
@@ -430,7 +543,8 @@ export function useDocument({
   return {
     selected, content, etag, mode, editText, commitMsg, saving, creating, staleFile, busy,
     rendered, hasFrontmatter,
-    openFile, reloadFile, startEdit, cancelEdit, close, fileGone,
+    openFile, startEdit, cancelEdit, close, fileGone, editorEl, trackCursor,
+    showConflict, discardEdits, overwriteServer,
     showNew, newPath, newError, newInput, newFullPath, openNew, confirmNew,
     showCommitPrompt, commitInput, save, confirmCommit,
     showDelete, deleteMsg, deleting, deleteInput, askDelete, confirmDelete,

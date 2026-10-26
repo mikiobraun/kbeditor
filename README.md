@@ -36,7 +36,12 @@ that KB, and talks to the KB's REST interface.
 - Task checkboxes (`- [ ]`) can be ticked in the rendered view. Each tick is a
   commit.
 - A save, rename or delete is refused if the note changed on the server since
-  you opened it.
+  you opened it. When you are editing, you choose between discarding your
+  changes and keeping them to overwrite the server version.
+- Unsaved edits are kept in the browser, per note, until you save or cancel.
+  They survive switching notes, reloading and signing in again; a note with
+  unsaved edits reopens in the editor where you left off, and is marked with
+  a dot in the tree.
 
 **Search**
 
@@ -119,7 +124,9 @@ URL it:
    (RFC 8707) and `audience`, because authorization servers differ in which of
    the two they read.
 4. Stores the access and refresh tokens per KB URL in `localStorage`, and
-   refreshes the access token shortly before it expires.
+   refreshes the access token shortly before it expires. Only one refresh runs
+   at a time, across tabs, because refresh tokens rotate and reusing an old one
+   ends the session. A refresh that fails for lack of network keeps the tokens.
 
 All KB requests then carry `Authorization: Bearer <token>`.
 

@@ -154,7 +154,7 @@ composable.
 `{history: false}`, and the on-load restore uses `replace: true` so landing on a
 note isn't a step you can go Back through. Only notes are history entries:
 search results are not, so queries stay out of the URL and Back never triggers
-a ripgrep. A refused "discard edits?" during
+a ripgrep. An open that fails during
 `popstate` re-pushes the current note, because the browser has already moved by
 then. Query strings are safe for OAuth — `redirectUri()` is origin + pathname.
 
@@ -170,7 +170,10 @@ an idle tab costs nothing. On a change it calls `refreshTree`
 (which re-lists only *expanded* folders and reuses existing node objects, so
 expansion state survives) and re-reads the open file. In edit mode it must not
 touch the buffer — it sets `staleFile` instead, since the `If-Match` save would
-be rejected anyway. Our own commits call `markSynced` so they don't come back as
+be rejected anyway. `staleFile` opens the conflict dialog (`showConflict`):
+*Discard my changes* takes the server version, *Keep editing and overwrite*
+adopts the server's current etag as the base, so the next save replaces exactly
+that version and is still refused if it moves again. There is no merge. Our own commits call `markSynced` so they don't come back as
 external changes. `startEdit` re-reads the open file directly, bypassing the
 throttle, so an edit never starts from a stale buffer. Blind spot: a change that
 doesn't move HEAD — a file written into the vault without a commit — is invisible
@@ -198,8 +201,13 @@ restore is not a failed connect.
    audience from `audience`, while the spec (RFC 8707) says `resource`. Keep
    both.
 4. Tokens stored per-KB in `localStorage` under `va_token_<kbUrl>`, refreshed
-   when within 30s of expiry; a failed refresh logs out and returns null so the
-   caller starts a fresh login.
+   when within 30s of expiry. The refresh runs under a Web Lock
+   (`va_refresh_<kbUrl>`) and re-reads the token inside it: volume-auth rotates
+   refresh tokens, and presenting a rotated one is treated as reuse and revokes
+   the whole grant — which parallel requests, or two tabs, used to do after
+   every expiry. Only a 400/401 from the token endpoint logs out (returning null
+   so the caller starts a fresh login); a network error throws and keeps the
+   token.
 
 `api.js` throws `AuthError` on 401; `App.connect()` catches it and redirects to
 login. Bearer-token mode sends `credentials: 'omit'` deliberately — sending
@@ -207,10 +215,24 @@ credentials would force credentialed CORS, which the gateway isn't set up for.
 Only same-origin cookie mode (no token) uses `'include'`.
 
 **Saving** (`useDocument.js`) is `PUT /files/<path>?message=…` with `If-Match: <etag>` from the read.
-A 412 is surfaced as "the file changed on the server" rather than clobbering.
+A 412 throws `ConflictError`, which sets `staleFile` rather than clobbering.
 Every save is a commit on the KB side, so a commit message is required. Save
 with an empty message opens a dialog (`showCommitPrompt`) asking for one, and
 `confirmCommit` then saves.
+
+**Drafts** (`lib/drafts.js`, `useDrafts.js`). While editing, the buffer is
+mirrored on every change into `localStorage` under
+`kb_editor_draft_<kbUrl> <path>` (a space, which no URL contains) as
+`{text, baseEtag, commitMsg, cursor, savedAt}`. A buffer equal to the server
+text is not a draft, except for a create. So leaving a note never loses edits
+and there is no "discard?" prompt on switching: `openFile` finds the draft and
+opens in edit mode with cursor and scroll restored, `etag` = `baseEtag`, and
+`staleFile` set if the server's etag differs. A draft whose file is gone opens as
+a create; `restoreOpenFile` opens a draft path the tree doesn't have, and
+`confirmNew` remembers the new path, so an unsaved new file survives a reload.
+Drafts are dropped only by a successful save, Cancel (which confirms) and
+*Discard my changes*. The tree marks drafted notes with a dot (`draftPaths`,
+provided like `listDir`; other tabs' changes arrive via the `storage` event).
 
 **Deleting** is `DELETE /files/<path>?message=…` with `If-Match`, behind a dialog
 pre-filled with `Delete <path>`. kbmcp refuses a file with uncommitted changes

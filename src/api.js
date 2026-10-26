@@ -24,6 +24,15 @@ export class NotFoundError extends Error {
   }
 }
 
+// A save was refused because the server holds a version we haven't seen:
+// the file changed since it was read, or one appeared where we meant to create.
+export class ConflictError extends Error {
+  constructor(msg) {
+    super(msg);
+    this.name = 'ConflictError';
+  }
+}
+
 // Encode each path segment but keep the slashes. '' stays '' (the root).
 function encodePath(path) {
   return String(path)
@@ -88,7 +97,7 @@ export function KbClient(kbUrl, tokenProvider) {
       if (r.status === 401) throw new AuthError();
       // 412 means a preconditon failed; which one depends on what we sent.
       if (r.status === 412) {
-        throw new Error(opts.ifNoneMatch
+        throw new ConflictError(opts.ifNoneMatch
           ? 'a file already exists at that path'
           : 'the file changed on the server since you opened it — reload before saving');
       }

@@ -31,7 +31,7 @@ export function useHistory({ openPath, currentPath, isReady }) {
   }
 
   // Open the note a history entry names. popstate fires *after* the browser has
-  // moved, so a refused "discard edits?" leaves the URL ahead of the app — push
+  // moved, so an open that fails leaves the URL ahead of the app — push
   // the note we're still on back over it rather than let the two lie.
   async function openHistoryNote(path) {
     if (!isReady() || !path) return;

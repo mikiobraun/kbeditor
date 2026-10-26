@@ -166,16 +166,36 @@ function storeToken(kbUrl, meta, clientId, tok) {
   }));
 }
 
+function readToken(kbUrl) {
+  const raw = localStorage.getItem(tokenKey(kbUrl));
+  return raw ? JSON.parse(raw) : null;
+}
+
+const isFresh = (b) => Date.now() < b.expires_at - 30_000;
+
 // Return a valid access token for kbUrl, refreshing if it's about to expire.
 // Returns null if there's no usable token (caller should start a login).
+// Throws when the authorization server can't be reached, keeping the token:
+// a laptop waking up before its network does is not a reason to sign out.
 export async function getAccessToken(kbUrl) {
-  const raw = localStorage.getItem(tokenKey(kbUrl));
-  if (!raw) return null;
-  const b = JSON.parse(raw);
-  if (Date.now() < b.expires_at - 30_000) return b.access_token;
+  const b = readToken(kbUrl);
+  if (!b) return null;
+  if (isFresh(b)) return b.access_token;
   if (!b.refresh_token || !b.meta) { logout(kbUrl); return null; }
+  // Refresh tokens rotate, and presenting one that was already rotated counts
+  // as reuse: the authorization server revokes the whole grant. So only one
+  // refresh may be in flight per KB, across every tab sharing this
+  // localStorage, and whoever waited reads the token the winner stored.
+  return navigator.locks.request(`va_refresh_${trimSlash(kbUrl)}`, () => refresh(kbUrl));
+}
+
+async function refresh(kbUrl) {
+  const b = readToken(kbUrl);
+  if (!b) return null;
+  if (isFresh(b)) return b.access_token;
+  let r;
   try {
-    const tok = await fetchJson(b.meta.tokenEndpoint, {
+    r = await fetch(b.meta.tokenEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -186,12 +206,19 @@ export async function getAccessToken(kbUrl) {
         scope: SCOPES,
       }),
     });
-    storeToken(kbUrl, b.meta, b.clientId, tok);
-    return tok.access_token;
   } catch (e) {
+    throw new Error('could not reach the sign-in server to renew the session — check the connection');
+  }
+  // 400 (invalid_grant) and 401 (invalid_client) mean this refresh token will
+  // never work again; anything else may be passing, so keep it.
+  if (r.status === 400 || r.status === 401) {
     logout(kbUrl);
     return null;
   }
+  if (!r.ok) throw new Error(`renewing the session failed: ${r.status}`);
+  const tok = await r.json();
+  storeToken(kbUrl, b.meta, b.clientId, tok);
+  return tok.access_token;
 }
 
 export function hasToken(kbUrl) {

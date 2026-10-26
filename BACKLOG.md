@@ -105,3 +105,19 @@ That framing makes it much smaller than it first appears:
 Deferred on 2026-09-07: while the app is redeployed several times an hour, the
 address bar costs nothing, and question 1 is better answered when the feature is
 actually wanted.
+
+## Merge a conflicting edit
+
+When a note changes on the server while you edit it, the conflict dialog offers
+two ways out: discard your changes, or keep them and overwrite the server's
+version (which stays in history). What's wanted is a three-way merge, like
+git's. Yours and theirs are at hand; the base is not. The draft records only
+`baseEtag`, and kbmcp's REST interface can't read an old version (`file_at` is
+MCP-only). Either the draft keeps the base text too, or kbmcp grows a
+`GET /files/<path>?rev=…`.
+
+**Why it waits:** a merge needs a UI for the hunks that don't merge cleanly,
+which is the bulk of the work, and a reason to resolve per hunk rather than
+per file. Conflicts are rare with one person editing; overwrite-or-discard is
+enough until they aren't. Worth revisiting with edit tabs, which make long-lived
+drafts — and so conflicts — more common.

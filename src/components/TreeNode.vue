@@ -6,6 +6,8 @@
         <span class="twist">{{ node.is_dir ? (node.expanded ? '▾' : '▸') : '' }}</span>
         <span class="icon">{{ node.is_dir ? '📁' : '📄' }}</span>
         <span class="name">{{ node.name }}</span>
+        <span v-if="!node.is_dir && draftPaths.has(node.path)" class="draft-dot"
+              title="Unsaved edits" aria-label="Unsaved edits">●</span>
       </div>
       <ul v-if="node.is_dir && node.expanded" class="children">
         <li v-if="node.loading" class="muted pad">…</li>
@@ -31,6 +33,7 @@ export default {
   emits: ['select'],
   setup(props, { emit }) {
     const listDir = inject('listDir');
+    const draftPaths = inject('draftPaths');
 
     async function loadChildren(n) {
       n.loading = true;
@@ -55,7 +58,7 @@ export default {
       if (n.expanded && n.children === null) await loadChildren(n);
     }
 
-    return { onClick };
+    return { onClick, draftPaths };
   },
 };
 </script>

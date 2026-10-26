@@ -173,6 +173,7 @@ header .menu { display: none; font-size: 1.1rem; padding: .35rem .6rem; }
    resize the names beside them. */
 .row .twist { flex: none; width: 1ch; text-align: center; color: var(--muted); }
 .row .icon { flex: none; width: 1.3em; text-align: center; font-size: .85rem; }
+.row .draft-dot { flex: none; color: var(--accent); font-size: .6rem; }
 .pad { padding: .18rem 1.4rem; font-size: .85rem; }
 
 /* content pane */

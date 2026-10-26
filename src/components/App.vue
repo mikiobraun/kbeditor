@@ -54,7 +54,7 @@
             <div v-if="banner" class="banner" :class="banner.kind">{{ banner.text }}</div>
             <div v-if="staleFile" class="banner err">
               This file changed on the server while you were editing — saving would be rejected.
-              <button class="ghost" @click="reloadFile">Discard my edits and reload</button>
+              <button class="ghost" @click="showConflict = true">Resolve…</button>
             </div>
             <div v-if="searching" class="empty muted">Searching…</div>
             <search-results
@@ -106,7 +106,9 @@
               </div>
               <div v-if="mode === 'view'" class="markdown" ref="notePane" v-html="rendered"></div>
               <pre v-else-if="mode === 'raw'" class="raw">{{ content }}</pre>
-              <textarea v-else class="editor" v-model="editText"></textarea>
+              <textarea v-else class="editor" ref="editorEl" v-model="editText"
+                        @input="trackCursor" @keyup="trackCursor" @mouseup="trackCursor"
+                        @scroll="trackCursor"></textarea>
             </template>
           </main>
         </div>
@@ -121,6 +123,23 @@
               <button type="button" class="ghost" @click="showCommitPrompt = false">Cancel</button>
             </div>
           </form>
+        </modal-dialog>
+
+        <modal-dialog v-if="showConflict" title="Changed on the server" @close="showConflict = false">
+          <div class="new-file">
+          <p>
+            <code>{{ selected && selected.path }}</code> changed on the server since your edits
+            started from it.
+          </p>
+          <p class="muted">
+            Overwriting keeps editing your version; saving then replaces the server's, which stays in
+            the history.
+          </p>
+          <div class="actions">
+            <button type="button" @click="overwriteServer">Keep editing and overwrite</button>
+            <button type="button" class="ghost" @click="discardEdits">Discard my changes</button>
+          </div>
+          </div>
         </modal-dialog>
 
         <modal-dialog v-if="showDelete" title="Delete file" @close="showDelete = false">
@@ -222,6 +241,7 @@ import FindResults from './FindResults.vue';
 import { renderNote, splitFrontmatter } from '../lib/markdown.js';
 import { pathParts, splitExt } from '../lib/text.js';
 import { useTree } from '../composables/useTree.js';
+import { useDrafts } from '../composables/useDrafts.js';
 import { useDocument } from '../composables/useDocument.js';
 import { useChrome } from '../composables/useChrome.js';
 import { useFind } from '../composables/useFind.js';
@@ -248,13 +268,17 @@ export default {
     // The file tree and how to walk it; see composables/useTree.js.
     const { roots, loadRoots, refreshTree, revealPath, findNode } = useTree({ client });
 
+    // Unsaved edits, per note; see composables/useDrafts.js.
+    const drafts = useDrafts({ kbUrl });
+
     // The open note and everything that changes it; see useDocument.js. The
     // callbacks are where this component decides what "a note was opened" or "a
     // file was created" mean for the rest of the app.
     const {
       selected, content, etag, mode, editText, commitMsg, saving, creating, staleFile,
       rendered, hasFrontmatter,
-      openFile, reloadFile, startEdit, cancelEdit, close: closeDocument, fileGone,
+      openFile, startEdit, cancelEdit, close: closeDocument, fileGone, editorEl, trackCursor,
+      showConflict, discardEdits, overwriteServer,
       showNew, newPath, newError, newInput, newFullPath, openNew, confirmNew: confirmNewFile,
       showCommitPrompt, commitInput, save, confirmCommit,
       showDelete, deleteMsg, deleting, deleteInput, askDelete, confirmDelete,
@@ -287,6 +311,7 @@ export default {
         return revealPath(path);
       },
       markSynced: () => markSynced(),
+      drafts,
     });
 
     // confirmNew asks the tree whether a path is taken; the document has no
@@ -319,7 +344,10 @@ export default {
       const path = fromUrl || localStorage.getItem(fileKey(url));
       if (!path) return;
       try {
-        const node = await revealPath(path);
+        // A path that isn't in the tree may still hold a draft: a new file
+        // never saved, or a note deleted elsewhere while you edited it.
+        const node = (await revealPath(path)) ||
+          (drafts.load(path) && { name: pathParts(path).name, path, is_dir: false });
         if (!node) {
           if (!fromUrl) localStorage.removeItem(fileKey(url));
           return;
@@ -353,6 +381,7 @@ export default {
         if (opts.token) auth.setManualToken(url, opts.token);
         client.value = KbClient(url, () => auth.getAccessToken(url));
         await loadRoots();
+        drafts.refresh();
         view.value = 'browse';
         await markSynced();
       } catch (e) {
@@ -528,7 +557,8 @@ export default {
       searchTerm, searchResults, searching,
       runSearch, clearSearch, openMatch,
       findTerm, findResults, finding, runFind, clearFind, pathParts, openFound,
-      creating, staleFile, reloadFile, syncNow,
+      creating, staleFile, syncNow, editorEl, trackCursor,
+      showConflict, discardEdits, overwriteServer,
       chromeHidden, paneEl, onPaneScroll,
       connect, openFile, startEdit, cancelEdit, save, disconnect,
       showNew, newPath, newError, newInput, newFullPath, openNew, confirmNew,
