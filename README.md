@@ -140,7 +140,8 @@ Below the URL field, **advanced** opens two more controls:
 - **Bearer token**: a token pasted here is sent as-is and the OAuth flow is
   skipped. Use it when the URL you connect to accepts a fixed token, for
   example kbmcp's own shared token behind a plain reverse proxy. kbmcp is
-  read-only in that setup unless the proxy adds the scope header.
+  read-only in that setup unless the proxy adds the scope header. A token the
+  KB rejects with `401` is forgotten and reported, with no fallback to sign-in.
 - **Delete client_id cache**: forgets the client registrations from step 2.
   Use it when the authorization server's database was reset and sign-in fails
   with `invalid_client`. The next connect registers again.

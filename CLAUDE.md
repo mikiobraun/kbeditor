@@ -210,7 +210,9 @@ restore is not a failed connect.
    token.
 
 `api.js` throws `AuthError` on 401; `App.connect()` catches it and redirects to
-login. Bearer-token mode sends `credentials: 'omit'` deliberately — sending
+login — except for a pasted token (`hasManualToken`: stored with no OAuth
+`meta`), which is dropped with a "rejected" banner instead, since the KB may
+have no authorization server to redirect to. Bearer-token mode sends `credentials: 'omit'` deliberately — sending
 credentials would force credentialed CORS, which the gateway isn't set up for.
 Only same-origin cookie mode (no token) uses `'include'`.
 

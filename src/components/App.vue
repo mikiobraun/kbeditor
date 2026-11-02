@@ -386,7 +386,13 @@ export default {
         await markSynced();
       } catch (e) {
         const needsLogin = e instanceof AuthError || !auth.hasToken(url);
-        if (auto) {
+        if (e instanceof AuthError && auth.hasManualToken(url)) {
+          // Not a login problem: the KB may have no auth server at all, and
+          // redirecting would only fail at discovery with a misleading error.
+          client.value = null;
+          auth.logout(url);
+          banner.value = { kind: 'err', text: 'The KB rejected the bearer token (401).' };
+        } else if (auto) {
           client.value = null;
           if (needsLogin) {
             auth.logout(url);

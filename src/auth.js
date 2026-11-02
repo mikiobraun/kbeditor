@@ -245,6 +245,13 @@ export function clearClientCache() {
 
 // Escape hatch for local / same-origin testing: store a bearer token by hand,
 // bypassing the OAuth flow. No refresh; treated as long-lived.
+// A pasted token has no OAuth metadata, so there is nothing to refresh it with
+// and no sign-in to fall back to when the KB rejects it.
+export function hasManualToken(kbUrl) {
+  const b = readToken(kbUrl);
+  return !!b && !b.meta;
+}
+
 export function setManualToken(kbUrl, token) {
   localStorage.setItem(tokenKey(kbUrl), JSON.stringify({
     access_token: token,
