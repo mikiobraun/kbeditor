@@ -28,9 +28,9 @@ The dev server does **not** pick up `vite.config.js` changes if it was started
 before them — restart it. A stale server reports `.vue` files as "invalid JS
 syntax", which reads like a code error and isn't one.
 
-The dev server is reachable through a Caddy reverse proxy at
-`https://editor.example.com` (allowedHosts + HMR over wss are configured for
-exactly that host in `vite.config.js`). A secure context is required — OAuth
+The dev server can sit behind a TLS reverse proxy: `DEV_PUBLIC_HOST` in the
+gitignored `.env.local` sets `allowedHosts` and points HMR at `wss://<host>:443`;
+unset, Vite's defaults apply. A secure context is required — OAuth
 redirects and `crypto.subtle` don't work over plain http on a non-localhost host.
 
 ## Architecture

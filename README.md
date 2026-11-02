@@ -181,9 +181,10 @@ npm test          # vitest
 
 The app needs a secure context (HTTPS or `localhost`) for sign-in.
 
-`vite.config.js` currently names the author's dev host in `allowedHosts` and in
-the `hmr` block. To develop on localhost, remove the `hmr` block; to develop
-behind your own TLS proxy, put your host name in both places.
+To develop behind your own TLS reverse proxy, put its host name in a
+gitignored `.env.local` as `DEV_PUBLIC_HOST=editor.example.com`. Vite then
+accepts that `Host` header and points hot reload at `wss://<host>:443`.
+Without it, the dev server is plain localhost.
 
 [CLAUDE.md](CLAUDE.md) describes the code's structure and the reasoning behind
 it.

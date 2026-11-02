@@ -2,3 +2,4 @@
 /dist/
 .vite/
 changes.local
+.env.local
