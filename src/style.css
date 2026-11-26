@@ -238,6 +238,17 @@ header .menu { display: none; font-size: 1.1rem; padding: .35rem .6rem; }
 .markdown a { color: var(--accent); }
 .markdown blockquote { margin: 0; padding-left: 1rem; border-left: 3px solid var(--border); color: var(--muted); }
 .markdown table { border-collapse: collapse; }
+/* A .csv/.tsv: as wide as its columns (the pane scrolls sideways), with the
+   header row pinned while scrolling down. The pane is the scroll container, so
+   sticky works against it. */
+.markdown.table { max-width: none; line-height: 1.4; }
+.markdown table.csv { font-size: .88rem; }
+.markdown table.csv td { white-space: pre-wrap; vertical-align: top; }
+.markdown table.csv th {
+  position: sticky; top: 0; background: var(--panel); text-align: left; white-space: nowrap;
+}
+.markdown table.csv tr.ragged td { background: color-mix(in srgb, #d33 12%, transparent); }
+.markdown .csv-error { color: var(--muted); }
 .markdown th, .markdown td { border: 1px solid var(--border); padding: .35rem .6rem; }
 
 /* Frontmatter metadata (from/subject/date …) rendered as a compact card, not a

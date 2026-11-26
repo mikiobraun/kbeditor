@@ -20,6 +20,7 @@ function setup({ note = '', links = [], mode = 'view' } = {}) {
     mode: ref(mode),
     creating: ref(false),
     staleFile: ref(false),
+    isTable: ref(false),
   };
   const client = ref({
     links: vi.fn(async () => links),

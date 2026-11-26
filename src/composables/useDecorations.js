@@ -17,7 +17,9 @@ import { taskLines, taskLabel } from '../lib/tasks.js';
 export function useDecorations({
   client, doc, notePane, rendered, highlight, applyHighlight, openPath, onError, setBanner,
 }) {
-  const { selected, content, etag, mode, creating, staleFile } = doc;
+  // A table (.csv/.tsv) gets search marks only: its cells are data, so a
+  // `[[x]]` or `[ ]` in one is text, not a link or a task.
+  const { selected, content, etag, mode, creating, staleFile, isTable } = doc;
 
   // --- wiki links ---
   //
@@ -29,7 +31,7 @@ export function useDecorations({
   const linkMap = computed(() => new Map(noteLinks.value.map((l) => [l.target, l])));
 
   async function loadLinks() {
-    if (!selected.value || creating.value || !client.value) {
+    if (!selected.value || creating.value || isTable.value || !client.value) {
       noteLinks.value = [];
       return;
     }
@@ -222,6 +224,7 @@ export function useDecorations({
   // and tested — without waiting on Vue's scheduler.
   function decorate(markSynced) {
     applyHighlight(notePane.value);
+    if (isTable.value) return;
     bindWikiLinks();
     bindExternalLinks();
     bindTaskBoxes(markSynced);

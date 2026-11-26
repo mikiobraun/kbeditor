@@ -1,5 +1,6 @@
 import { ref, computed, nextTick, watch } from 'vue';
 import { renderNote, splitFrontmatter } from '../lib/markdown.js';
+import { delimiterFor, renderTable } from '../lib/csv.js';
 import { pathParts, splitExt, renamedPath } from '../lib/text.js';
 import { NotFoundError, ConflictError } from '../api.js';
 
@@ -38,12 +39,20 @@ export function useDocument({
   const editorEl = ref(null); // the textarea
   const cursor = ref(null); // { start, end, scrollTop } of the textarea
 
-  const rendered = computed(() => renderNote(content.value));
+  // A .csv or .tsv renders as a table; everything else as a markdown note. The
+  // extension decides, so `delimiter` is null exactly when the file is a note.
+  const delimiter = computed(() => delimiterFor(selected.value && selected.value.path));
+  const isTable = computed(() => delimiter.value !== null);
+
+  const rendered = computed(() => (isTable.value
+    ? renderTable(content.value, delimiter.value)
+    : renderNote(content.value)));
 
   // Whether there's a metadata card to jump between. Frontmatter has no
   // meaningful order, so there's no "first few rows worth showing" — the answer
   // to a long block is to skip past it, not to truncate it.
   const hasFrontmatter = computed(() => {
+    if (isTable.value) return false;
     const { raw } = splitFrontmatter(content.value || '');
     return !!(raw && raw.trim());
   });
@@ -542,7 +551,7 @@ export function useDocument({
 
   return {
     selected, content, etag, mode, editText, commitMsg, saving, creating, staleFile, busy,
-    rendered, hasFrontmatter,
+    rendered, isTable, hasFrontmatter,
     openFile, startEdit, cancelEdit, close, fileGone, editorEl, trackCursor,
     showConflict, discardEdits, overwriteServer,
     showNew, newPath, newError, newInput, newFullPath, openNew, confirmNew,

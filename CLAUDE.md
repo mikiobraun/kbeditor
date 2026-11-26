@@ -280,6 +280,16 @@ horizontal rules; and the newline lives *inside* that group, which keeps the
 closing `---` at a line start so a value ending in `---` can't close the block
 early. A marker div between card and body anchors the toolbar's Content button.
 
+**Tables** (`lib/csv.js`). A `.csv` (comma) or `.tsv` (tab) renders as a
+table instead of markdown; the extension alone decides (`delimiterFor`), with no
+delimiter sniffing. The parser is RFC 4180: quoted fields may hold delimiters,
+newlines and `""`; a quote not at a field's start is literal. The first row is
+always the header. Rows of a different length than the header are padded and
+marked `ragged`; an unclosed quote shows the file verbatim under a notice. Read
+only: Edit is the plain textarea. Decorations other than search marks are
+skipped for tables (`isTable`), including the `/links` request, since cells are
+data, not markup.
+
 ## Deployment gotcha: CORS
 
 The app is a different origin from the KB, so the **servers it calls** need CORS

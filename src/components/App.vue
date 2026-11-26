@@ -104,7 +104,8 @@
                   <button class="ghost" @click="cancelEdit">Cancel</button>
                 </div>
               </div>
-              <div v-if="mode === 'view'" class="markdown" ref="notePane" v-html="rendered"></div>
+              <div v-if="mode === 'view'" class="markdown" :class="{ table: isTable }"
+                   ref="notePane" v-html="rendered"></div>
               <pre v-else-if="mode === 'raw'" class="raw">{{ content }}</pre>
               <textarea v-else class="editor" ref="editorEl" v-model="editText"
                         @input="trackCursor" @keyup="trackCursor" @mouseup="trackCursor"
@@ -276,7 +277,7 @@ export default {
     // file was created" mean for the rest of the app.
     const {
       selected, content, etag, mode, editText, commitMsg, saving, creating, staleFile,
-      rendered, hasFrontmatter,
+      rendered, isTable, hasFrontmatter,
       openFile, startEdit, cancelEdit, close: closeDocument, fileGone, editorEl, trackCursor,
       showConflict, discardEdits, overwriteServer,
       showNew, newPath, newError, newInput, newFullPath, openNew, confirmNew: confirmNewFile,
@@ -456,7 +457,7 @@ export default {
     // search marks, wiki links, checkboxes; see composables/useDecorations.js.
     const { watchRender } = useDecorations({
       client,
-      doc: { selected, content, etag, mode, creating, staleFile },
+      doc: { selected, content, etag, mode, creating, staleFile, isTable },
       notePane,
       rendered,
       highlight,
@@ -559,7 +560,7 @@ export default {
     return {
       view, kbUrl, busy, banner, treeOpen, forgetClient, copyPath, copiedPath,
       roots, selected, content, etag, mode, editText, commitMsg, saving, rendered,
-      hasFrontmatter, notePane, scrollToFrontmatter, scrollToContent,
+      isTable, hasFrontmatter, notePane, scrollToFrontmatter, scrollToContent,
       searchTerm, searchResults, searching,
       runSearch, clearSearch, openMatch,
       findTerm, findResults, finding, runFind, clearFind, pathParts, openFound,
